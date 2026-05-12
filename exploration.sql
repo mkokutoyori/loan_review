@@ -244,3 +244,74 @@ FROM   actb_history
 WHERE  module = 'CL'
 GROUP  BY ac_no
 ORDER  BY nb_entries DESC FETCH FIRST 30 ROWS ONLY;
+
+PROMPT ============================================================
+PROMPT SECTION 6 - CLTB_ACCOUNT_SCHEDULES (loan repayment schedules)
+PROMPT ============================================================
+
+PROMPT --- 6.1 Distinct component_name (MAIN_INT, PRINCIPAL, etc.) ---
+SELECT component_name, COUNT(*) AS nb_lines,
+       COUNT(DISTINCT account_number) AS nb_accounts
+FROM   cltb_account_schedules
+GROUP  BY component_name
+ORDER  BY nb_lines DESC;
+
+PROMPT --- 6.2 Distinct schedule_type ---
+SELECT schedule_type, COUNT(*) AS nb_lines
+FROM   cltb_account_schedules
+GROUP  BY schedule_type
+ORDER  BY nb_lines DESC;
+
+PROMPT --- 6.3 Distinct schedule_flag / sch_status ---
+SELECT schedule_flag, sch_status, COUNT(*) AS nb_lines
+FROM   cltb_account_schedules
+GROUP  BY schedule_flag, sch_status
+ORDER  BY nb_lines DESC;
+
+PROMPT --- 6.4 Overdue snapshot by component (positive amount_overdue) ---
+SELECT component_name,
+       COUNT(*)                       AS nb_overdue_lines,
+       COUNT(DISTINCT account_number) AS nb_accounts_overdue,
+       SUM(amount_overdue)            AS sum_overdue,
+       SUM(amount_due)                AS sum_due,
+       SUM(amount_settled)            AS sum_settled
+FROM   cltb_account_schedules
+WHERE  amount_overdue > 0
+GROUP  BY component_name
+ORDER  BY sum_overdue DESC NULLS LAST;
+
+PROMPT --- 6.5 Aging of overdue (days past due) ---
+SELECT CASE
+         WHEN TRUNC(SYSDATE) - schedule_due_date <= 30  THEN '1-30'
+         WHEN TRUNC(SYSDATE) - schedule_due_date <= 60  THEN '31-60'
+         WHEN TRUNC(SYSDATE) - schedule_due_date <= 90  THEN '61-90'
+         WHEN TRUNC(SYSDATE) - schedule_due_date <= 180 THEN '91-180'
+         WHEN TRUNC(SYSDATE) - schedule_due_date <= 365 THEN '181-365'
+         ELSE '>365'
+       END AS bucket,
+       COUNT(*)                       AS nb_lines,
+       COUNT(DISTINCT account_number) AS nb_accounts,
+       SUM(amount_overdue)            AS sum_overdue
+FROM   cltb_account_schedules
+WHERE  amount_overdue > 0
+  AND  schedule_due_date < TRUNC(SYSDATE)
+GROUP  BY CASE
+            WHEN TRUNC(SYSDATE) - schedule_due_date <= 30  THEN '1-30'
+            WHEN TRUNC(SYSDATE) - schedule_due_date <= 60  THEN '31-60'
+            WHEN TRUNC(SYSDATE) - schedule_due_date <= 90  THEN '61-90'
+            WHEN TRUNC(SYSDATE) - schedule_due_date <= 180 THEN '91-180'
+            WHEN TRUNC(SYSDATE) - schedule_due_date <= 365 THEN '181-365'
+            ELSE '>365'
+          END
+ORDER  BY 1;
+
+PROMPT --- 6.6 Suspense and write-off amounts at schedule level ---
+SELECT component_name,
+       SUM(susp_amt_due)     AS sum_susp_amt_due,
+       SUM(susp_amt_settled) AS sum_susp_amt_settled,
+       SUM(susp_amt_lcy)     AS sum_susp_amt_lcy,
+       SUM(writeoff_amt)     AS sum_writeoff,
+       SUM(amount_waived)    AS sum_waived
+FROM   cltb_account_schedules
+GROUP  BY component_name
+ORDER  BY sum_susp_amt_due DESC NULLS LAST;
