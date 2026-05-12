@@ -315,3 +315,57 @@ SELECT component_name,
 FROM   cltb_account_schedules
 GROUP  BY component_name
 ORDER  BY sum_susp_amt_due DESC NULLS LAST;
+
+PROMPT ============================================================
+PROMPT SECTION 7 - STTB_ACCOUNT (GL / customer accounts)
+PROMPT ============================================================
+
+PROMPT --- 7.1 Distribution AC_OR_GL ---
+SELECT ac_or_gl, COUNT(*) AS nb
+FROM   sttb_account
+GROUP  BY ac_or_gl
+ORDER  BY ac_or_gl;
+
+PROMPT --- 7.2 Distribution GL_ACLASS_TYPE / GL_CATEGORY ---
+SELECT gl_aclass_type, gl_category, COUNT(*) AS nb
+FROM   sttb_account
+WHERE  ac_or_gl = 'G'
+GROUP  BY gl_aclass_type, gl_category
+ORDER  BY nb DESC;
+
+PROMPT --- 7.3 AC_CLASS distribution ---
+SELECT ac_class, COUNT(*) AS nb
+FROM   sttb_account
+GROUP  BY ac_class
+ORDER  BY nb DESC;
+
+PROMPT --- 7.4 GLs whose description suggests loan loss pool / provisioning ---
+SELECT ac_gl_no, branch_code, ac_gl_ccy, ac_gl_desc, ac_class,
+       gl_aclass_type, gl_category, ac_natural_gl, auth_stat
+FROM   sttb_account
+WHERE  ac_or_gl = 'G'
+  AND  (UPPER(ac_gl_desc) LIKE '%LOSS%POOL%'
+        OR UPPER(ac_gl_desc) LIKE '%POOL%'
+        OR UPPER(ac_gl_desc) LIKE '%PROVIS%'
+        OR UPPER(ac_gl_desc) LIKE '%IMPAIR%'
+        OR UPPER(ac_gl_desc) LIKE '%WRITE%OFF%'
+        OR UPPER(ac_gl_desc) LIKE '%DOUBTFUL%'
+        OR UPPER(ac_gl_desc) LIKE '%NPL%'
+        OR UPPER(ac_gl_desc) LIKE '%LOAN%LOSS%')
+ORDER  BY branch_code, ac_gl_no;
+
+PROMPT --- 7.5 GLs related to loans (loan principal, interest receivable etc.) ---
+SELECT ac_gl_no, branch_code, ac_gl_ccy, ac_gl_desc, ac_class, ac_natural_gl
+FROM   sttb_account
+WHERE  ac_or_gl = 'G'
+  AND  (UPPER(ac_gl_desc) LIKE '%LOAN%'
+        OR UPPER(ac_gl_desc) LIKE '%ADVANCE%'
+        OR UPPER(ac_gl_desc) LIKE '%CREDIT%')
+ORDER  BY branch_code, ac_gl_no FETCH FIRST 50 ROWS ONLY;
+
+PROMPT --- 7.6 Status flags on GL (blocked / frozen / dormant) ---
+SELECT gl_stat_blocked, ac_stat_frozen, ac_stat_dormant, COUNT(*) AS nb
+FROM   sttb_account
+WHERE  ac_or_gl = 'G'
+GROUP  BY gl_stat_blocked, ac_stat_frozen, ac_stat_dormant
+ORDER  BY nb DESC;
