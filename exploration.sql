@@ -85,3 +85,54 @@ SELECT product_code,
 FROM   cltm_product
 WHERE  auth_stat = 'A'
 ORDER  BY product_code;
+
+PROMPT ============================================================
+PROMPT SECTION 3 - CLTB_ACCOUNT_APPS_MASTER (loan contracts)
+PROMPT ============================================================
+
+PROMPT --- 3.1 Distribution by account_status / auth_stat ---
+SELECT account_status, auth_stat, COUNT(*) AS nb
+FROM   cltb_account_apps_master
+GROUP  BY account_status, auth_stat
+ORDER  BY nb DESC;
+
+PROMPT --- 3.2 Distribution by user_defined_status (NPL classification axis) ---
+SELECT user_defined_status, COUNT(*) AS nb,
+       SUM(amount_financed)  AS sum_financed,
+       SUM(amount_disbursed) AS sum_disbursed
+FROM   cltb_account_apps_master
+GROUP  BY user_defined_status
+ORDER  BY nb DESC;
+
+PROMPT --- 3.3 Loans by product / category / branch ---
+SELECT branch_code, product_code, product_category, COUNT(*) AS nb_loans,
+       SUM(amount_financed) AS sum_financed
+FROM   cltb_account_apps_master
+GROUP  BY branch_code, product_code, product_category
+ORDER  BY branch_code, nb_loans DESC;
+
+PROMPT --- 3.4 Loans by currency and module ---
+SELECT module_code, currency, COUNT(*) AS nb_loans,
+       SUM(amount_financed)  AS sum_financed,
+       SUM(amount_disbursed) AS sum_disbursed
+FROM   cltb_account_apps_master
+GROUP  BY module_code, currency
+ORDER  BY nb_loans DESC;
+
+PROMPT --- 3.5 Sample loans (10 most recent disbursed) ---
+SELECT *
+FROM   (SELECT account_number, branch_code, customer_id, product_code, product_category,
+               currency, amount_financed, amount_disbursed, value_date, maturity_date,
+               account_status, user_defined_status, dr_prod_ac, cr_prod_ac, alt_acc_no
+        FROM   cltb_account_apps_master
+        WHERE  auth_stat = 'A'
+        ORDER  BY book_date DESC NULLS LAST)
+WHERE  ROWNUM <= 10;
+
+PROMPT --- 3.6 Distinct DR_PROD_AC / CR_PROD_AC patterns (settlement GL/customer account) ---
+SELECT 'DR_PROD_AC' AS side, COUNT(DISTINCT dr_prod_ac) AS nb_distinct,
+       COUNT(*) AS nb_loans, COUNT(dr_prod_ac) AS nb_filled
+FROM   cltb_account_apps_master
+UNION ALL
+SELECT 'CR_PROD_AC', COUNT(DISTINCT cr_prod_ac), COUNT(*), COUNT(cr_prod_ac)
+FROM   cltb_account_apps_master;
