@@ -447,3 +447,236 @@ FROM (
     ORDER BY h.trn_dt DESC, h.event_sr_no DESC
 )
 WHERE ROWNUM <= 10;
+
+
+-- =============================================================================
+-- SECTION 5 : ECHEANCIERS DE REMBOURSEMENT (CLTB_ACCOUNT_SCHEDULES)
+-- =============================================================================
+-- Objectif : Comprendre la structure des echeanciers pour pouvoir calculer :
+--   - les montants dus vs regles par composant (PRINCIPAL, MAIN_INT, etc.)
+--   - les impayés (AMOUNT_OVERDUE) et les passs en perte (WRITEOFF_AMT)
+--   - les montants suspendus (SUSP_AMT_DUE) = ecritures de NPL
+--   - les statuts des echeances (SCH_STATUS)
+-- =============================================================================
+
+PROMPT
+PROMPT =============================================================================
+PROMPT SECTION 5 : CLTB_ACCOUNT_SCHEDULES - ECHEANCIERS DE REMBOURSEMENT
+PROMPT =============================================================================
+PROMPT
+
+COLUMN component_name  FORMAT A25
+COLUMN schedule_type   FORMAT A15
+COLUMN sch_status      FORMAT A12
+COLUMN nb_echeances    FORMAT 999,999,990
+COLUMN total_du        FORMAT 999,999,999,990
+COLUMN total_regle     FORMAT 999,999,999,990
+COLUMN total_impaye    FORMAT 999,999,999,990
+COLUMN total_perte     FORMAT 999,999,999,990
+COLUMN total_suspendu  FORMAT 999,999,999,990
+
+PROMPT --- 5a. Composants distincts (COMPONENT_NAME) avec volume ---
+PROMPT
+
+SELECT
+    s.component_name,
+    COUNT(*)   nb_echeances
+FROM cltb_account_schedules s
+GROUP BY s.component_name
+ORDER BY nb_echeances DESC;
+
+PROMPT
+PROMPT --- 5b. Types d'echeance (SCHEDULE_TYPE) ---
+PROMPT
+
+SELECT
+    s.schedule_type,
+    COUNT(*)   nb_echeances
+FROM cltb_account_schedules s
+GROUP BY s.schedule_type
+ORDER BY nb_echeances DESC;
+
+PROMPT
+PROMPT --- 5c. Statuts des echeances (SCH_STATUS) ---
+PROMPT
+
+SELECT
+    s.sch_status,
+    COUNT(*)   nb_echeances
+FROM cltb_account_schedules s
+GROUP BY s.sch_status
+ORDER BY nb_echeances DESC;
+
+PROMPT
+PROMPT --- 5d. Montants par composant : du, regle, impaye, passe en perte, suspendu ---
+PROMPT
+
+SELECT
+    s.component_name,
+    COUNT(*)                    nb_echeances,
+    SUM(s.amount_due)           total_du,
+    SUM(s.amount_settled)       total_regle,
+    SUM(s.amount_overdue)       total_impaye,
+    SUM(s.writeoff_amt)         total_passe_perte,
+    SUM(s.susp_amt_due)         total_suspendu
+FROM cltb_account_schedules s
+GROUP BY s.component_name
+ORDER BY total_du DESC NULLS LAST;
+
+PROMPT
+PROMPT --- 5e. Repartition par SCH_STATUS et COMPONENT_NAME ---
+PROMPT
+
+SELECT
+    s.component_name,
+    s.sch_status,
+    COUNT(*)              nb_echeances,
+    SUM(s.amount_due)     total_du,
+    SUM(s.amount_overdue) total_impaye
+FROM cltb_account_schedules s
+GROUP BY s.component_name, s.sch_status
+ORDER BY s.component_name, s.sch_status;
+
+PROMPT
+PROMPT --- 5f. Echantillon : echeancier complet d'un dossier ---
+PROMPT    (premier dossier trouve dans la table)
+PROMPT
+
+COLUMN schedule_due_date FORMAT A14
+COLUMN amount_due        FORMAT 999,999,999,990
+COLUMN amount_settled    FORMAT 999,999,999,990
+COLUMN amount_overdue    FORMAT 999,999,999,990
+COLUMN writeoff_amt      FORMAT 999,999,999,990
+COLUMN susp_amt_due      FORMAT 999,999,999,990
+
+SELECT
+    s.account_number,
+    s.component_name,
+    TO_CHAR(s.schedule_due_date, 'DD-MON-YYYY')   schedule_due_date,
+    s.amount_due,
+    s.amount_settled,
+    s.amount_overdue,
+    s.sch_status,
+    s.writeoff_amt,
+    s.susp_amt_due
+FROM cltb_account_schedules s
+WHERE s.account_number = (
+    SELECT MIN(s2.account_number)
+    FROM cltb_account_schedules s2
+)
+ORDER BY s.component_name, s.schedule_due_date;
+
+
+-- =============================================================================
+-- SECTION 6 : COMPTES GL LIES AUX CREDITS (STTB_ACCOUNT)
+-- =============================================================================
+-- Objectif : Identifier les comptes GL qui portent les mouvements de credit,
+--   notamment les comptes de provisions / loan loss pool (classe 39 ou 19
+--   selon le plan comptable COBAC).
+--   - DR_PROD_AC : compte debite lors des operations (compte client du credit)
+--   - CR_PROD_AC : compte credite lors des operations
+--   - AC_NATURAL_GL : classe comptable (30=LT, 31=MT, 32=CT, 34=Souffrance,
+--                     37=Vue, 39=Provisions clientele, 19=Provisions risques)
+-- =============================================================================
+
+PROMPT
+PROMPT =============================================================================
+PROMPT SECTION 6 : STTB_ACCOUNT - COMPTES GL LIES AUX CREDITS
+PROMPT =============================================================================
+PROMPT
+
+COLUMN ac_gl_no       FORMAT A25
+COLUMN ac_gl_desc     FORMAT A50
+COLUMN ac_natural_gl  FORMAT A14
+COLUMN gl_category    FORMAT A12
+COLUMN ac_or_gl       FORMAT A8
+COLUMN cust_no        FORMAT A15
+COLUMN branch_code    FORMAT A12
+COLUMN nb_dossiers    FORMAT 999,999,990
+
+PROMPT --- 6a. Comptes DR_PROD_AC (compte debit du credit = compte client/GL CL) ---
+PROMPT
+
+SELECT
+    s.ac_gl_no,
+    s.ac_gl_desc,
+    s.ac_natural_gl,
+    s.gl_category,
+    s.ac_or_gl,
+    s.cust_no,
+    s.branch_code,
+    COUNT(a.account_number)   nb_dossiers
+FROM sttb_account s
+JOIN cltb_account_apps_master a ON a.dr_prod_ac = s.ac_gl_no
+GROUP BY s.ac_gl_no, s.ac_gl_desc, s.ac_natural_gl, s.gl_category, s.ac_or_gl, s.cust_no, s.branch_code
+ORDER BY s.ac_natural_gl, nb_dossiers DESC;
+
+PROMPT
+PROMPT --- 6b. Comptes CR_PROD_AC (compte credit du credit) ---
+PROMPT
+
+SELECT
+    s.ac_gl_no,
+    s.ac_gl_desc,
+    s.ac_natural_gl,
+    s.gl_category,
+    s.ac_or_gl,
+    s.cust_no,
+    s.branch_code,
+    COUNT(a.account_number)   nb_dossiers
+FROM sttb_account s
+JOIN cltb_account_apps_master a ON a.cr_prod_ac = s.ac_gl_no
+GROUP BY s.ac_gl_no, s.ac_gl_desc, s.ac_natural_gl, s.gl_category, s.ac_or_gl, s.cust_no, s.branch_code
+ORDER BY s.ac_natural_gl, nb_dossiers DESC;
+
+PROMPT
+PROMPT --- 6c. Classes comptables (AC_NATURAL_GL) des comptes lies aux credits ---
+PROMPT    (identification des classes 30-39 et 19 du plan COBAC)
+PROMPT
+
+SELECT
+    s.ac_natural_gl,
+    s.ac_or_gl,
+    s.gl_category,
+    COUNT(DISTINCT s.ac_gl_no)   nb_comptes
+FROM sttb_account s
+WHERE s.ac_gl_no IN (
+    SELECT DISTINCT a.dr_prod_ac FROM cltb_account_apps_master a WHERE a.dr_prod_ac IS NOT NULL
+    UNION
+    SELECT DISTINCT a.cr_prod_ac FROM cltb_account_apps_master a WHERE a.cr_prod_ac IS NOT NULL
+)
+GROUP BY s.ac_natural_gl, s.ac_or_gl, s.gl_category
+ORDER BY s.ac_natural_gl;
+
+PROMPT
+PROMPT --- 6d. Comptes dont AC_NATURAL_GL commence par '39' ou '19' ---
+PROMPT    (comptes de provisions pour depreciation = candidats loan loss pool)
+PROMPT
+
+SELECT
+    s.ac_gl_no,
+    s.ac_gl_desc,
+    s.ac_natural_gl,
+    s.gl_category,
+    s.ac_or_gl,
+    s.cust_no,
+    s.branch_code
+FROM sttb_account s
+WHERE (s.ac_natural_gl LIKE '39%' OR s.ac_natural_gl LIKE '19%')
+ORDER BY s.ac_natural_gl, s.ac_gl_no;
+
+PROMPT
+PROMPT --- 6e. Tous les comptes GL portant des ecritures CL avec classe comptable ---
+PROMPT    (AC_NO dans actb_history MODULE='CL', enrichi via sttb_account)
+PROMPT
+
+SELECT DISTINCT
+    s.ac_natural_gl,
+    s.ac_or_gl,
+    s.gl_category,
+    COUNT(DISTINCT h.ac_no)   nb_comptes_distincts
+FROM actb_history h
+LEFT JOIN sttb_account s ON h.ac_no = s.ac_gl_no
+WHERE h.module = 'CL'
+GROUP BY s.ac_natural_gl, s.ac_or_gl, s.gl_category
+ORDER BY s.ac_natural_gl NULLS LAST;
