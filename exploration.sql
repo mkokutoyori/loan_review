@@ -303,48 +303,77 @@ DECLARE
     PROCEDURE print_kv(p_label VARCHAR2, p_value VARCHAR2) IS BEGIN
         DBMS_OUTPUT.PUT_LINE('  ' || RPAD(p_label, 45, '.') || ' ' || NVL(p_value, 'NULL / NON RENSEIGNE'));
     END;
+BEGIN
+    print_section('4. CSTB_AMOUNT_TAG (dictionnaire balises module CL)');
+
+    print_sub('4.1 Nombre de balises par module (dedoublonne par langue)');
+    FOR r IN (
+        SELECT module,
+               COUNT(*) AS nb_rows,
+               COUNT(DISTINCT amount_tag) AS nb_distinct_tags
+        FROM   cstb_amount_tag
+        GROUP  BY module
+        ORDER  BY COUNT(DISTINCT amount_tag) DESC
+    ) LOOP
+        print_kv('Module ' || NVL(r.module,'<NULL>'),
+                 'rows=' || r.nb_rows || ' distinct_tags=' || r.nb_distinct_tags);
+    END LOOP;
+END;
+/
+
+DECLARE
+    PROCEDURE print_sub(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE('--- ' || p_title || ' ---');
+    END;
     PROCEDURE print_line(p_text VARCHAR2) IS BEGIN
         DBMS_OUTPUT.PUT_LINE('  ' || p_text);
     END;
 BEGIN
-    print_section('4. CSTB_AMOUNT_TAG (dictionnaire balises module CL)');
-
-    print_sub('4.1 Nombre de balises par module');
-    FOR r IN (
-        SELECT module, COUNT(*) AS nb
-        FROM   cstb_amount_tag
-        GROUP  BY module
-        ORDER  BY COUNT(*) DESC
-    ) LOOP
-        print_kv('Module ' || NVL(r.module,'<NULL>'), TO_CHAR(r.nb) || ' balises');
-    END LOOP;
-
-    print_sub('4.2 Toutes les balises module CL (max 300)');
+    print_sub('4.2 Balises module CL (1 ligne par tag, max 150)');
     FOR r IN (
         SELECT * FROM (
-            SELECT amount_tag, description, amount_tag_type,
-                   interest_allowed, unrealised, track_receivable, track_payable,
-                   offset_amount_tag, user_defined
+            SELECT amount_tag,
+                   MIN(description)        AS description,
+                   MIN(amount_tag_type)    AS amount_tag_type,
+                   MIN(unrealised)         AS unrealised,
+                   MIN(track_receivable)   AS track_receivable,
+                   MIN(track_payable)      AS track_payable,
+                   MIN(offset_amount_tag)  AS offset_amount_tag,
+                   MIN(user_defined)       AS user_defined
             FROM   cstb_amount_tag
             WHERE  module = 'CL'
+            GROUP  BY amount_tag
             ORDER  BY amount_tag
-        ) WHERE ROWNUM <= 300
+        ) WHERE ROWNUM <= 150
     ) LOOP
-        print_line(RPAD(r.amount_tag,25) ||
-                   RPAD(SUBSTR(NVL(r.description,'-'),1,45),47) ||
-                   RPAD('type='||NVL(r.amount_tag_type,'-'),10) ||
-                   RPAD('int='||NVL(r.interest_allowed,'-'),8) ||
-                   RPAD('unrl='||NVL(r.unrealised,'-'),9) ||
-                   RPAD('trkrcv='||NVL(r.track_receivable,'-'),11) ||
-                   RPAD('trkpay='||NVL(r.track_payable,'-'),11) ||
-                   RPAD('offset='||NVL(r.offset_amount_tag,'-'),20) ||
+        print_line(RPAD(r.amount_tag,22) ||
+                   RPAD(SUBSTR(NVL(r.description,'-'),1,40),42) ||
+                   RPAD('t='||NVL(r.amount_tag_type,'-'),6) ||
+                   RPAD('unr='||NVL(r.unrealised,'-'),8) ||
+                   RPAD('trkR='||NVL(r.track_receivable,'-'),9) ||
+                   RPAD('trkP='||NVL(r.track_payable,'-'),9) ||
+                   RPAD('off='||NVL(r.offset_amount_tag,'-'),18) ||
                    'usr='||NVL(r.user_defined,'-'));
     END LOOP;
+END;
+/
 
+DECLARE
+    PROCEDURE print_sub(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE('--- ' || p_title || ' ---');
+    END;
+    PROCEDURE print_line(p_text VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || p_text);
+    END;
+BEGIN
     print_sub('4.3 Balises CL candidates loss-pool / provision / suspense');
     FOR r IN (
-        SELECT amount_tag, description, amount_tag_type, unrealised,
-               track_receivable, track_payable
+        SELECT amount_tag,
+               MIN(description)      AS description,
+               MIN(amount_tag_type)  AS amount_tag_type,
+               MIN(unrealised)       AS unrealised,
+               MIN(track_receivable) AS track_receivable,
+               MIN(track_payable)    AS track_payable
         FROM   cstb_amount_tag
         WHERE  module = 'CL'
           AND (UPPER(description) LIKE '%LOSS%'
@@ -360,14 +389,15 @@ BEGIN
                OR UPPER(amount_tag)  LIKE '%WROFF%'
                OR UPPER(amount_tag)  LIKE '%SUSP%'
                OR UPPER(amount_tag)  LIKE '%POOL%')
+        GROUP  BY amount_tag
         ORDER  BY amount_tag
     ) LOOP
-        print_line(RPAD(r.amount_tag,25) ||
-                   RPAD(SUBSTR(NVL(r.description,'-'),1,55),57) ||
-                   RPAD('type='||NVL(r.amount_tag_type,'-'),10) ||
-                   RPAD('unrl='||NVL(r.unrealised,'-'),9) ||
-                   RPAD('trkrcv='||NVL(r.track_receivable,'-'),11) ||
-                   'trkpay='||NVL(r.track_payable,'-'));
+        print_line(RPAD(r.amount_tag,22) ||
+                   RPAD(SUBSTR(NVL(r.description,'-'),1,50),52) ||
+                   RPAD('t='||NVL(r.amount_tag_type,'-'),6) ||
+                   RPAD('unr='||NVL(r.unrealised,'-'),8) ||
+                   RPAD('trkR='||NVL(r.track_receivable,'-'),9) ||
+                   'trkP='||NVL(r.track_payable,'-'));
     END LOOP;
 END;
 /
