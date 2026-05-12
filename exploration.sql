@@ -369,3 +369,82 @@ FROM   sttb_account
 WHERE  ac_or_gl = 'G'
 GROUP  BY gl_stat_blocked, ac_stat_frozen, ac_stat_dormant
 ORDER  BY nb DESC;
+
+PROMPT ============================================================
+PROMPT SECTION 8 - CROSS-TABLE RELATIONSHIPS
+PROMPT ============================================================
+
+PROMPT --- 8.1 Loan -> Product join coverage ---
+SELECT COUNT(*) AS total_loans,
+       SUM(CASE WHEN p.product_code IS NOT NULL THEN 1 ELSE 0 END) AS matched_product,
+       SUM(CASE WHEN p.product_code IS NULL     THEN 1 ELSE 0 END) AS unmatched_product
+FROM   cltb_account_apps_master m
+LEFT   JOIN cltm_product p ON p.product_code = m.product_code;
+
+PROMPT --- 8.2 ACTB_HISTORY (CL) -> CLTB_ACCOUNT_APPS_MASTER join via trn_ref_no ---
+SELECT COUNT(*)                                                     AS nb_cl_entries,
+       COUNT(DISTINCT h.trn_ref_no)                                  AS nb_cl_contracts,
+       SUM(CASE WHEN m.account_number IS NOT NULL THEN 1 ELSE 0 END) AS entries_with_loan_match,
+       SUM(CASE WHEN m.account_number IS NULL     THEN 1 ELSE 0 END) AS entries_without_loan_match
+FROM   actb_history h
+LEFT   JOIN cltb_account_apps_master m ON m.account_number = h.trn_ref_no
+WHERE  h.module = 'CL';
+
+PROMPT --- 8.3 ACTB_HISTORY (CL) ac_no resolution against STTB_ACCOUNT ---
+SELECT SUM(CASE WHEN s.ac_or_gl = 'G' THEN 1 ELSE 0 END) AS hits_on_gl,
+       SUM(CASE WHEN s.ac_or_gl = 'A' THEN 1 ELSE 0 END) AS hits_on_customer_ac,
+       SUM(CASE WHEN s.ac_or_gl IS NULL THEN 1 ELSE 0 END) AS unmatched
+FROM   actb_history h
+LEFT   JOIN sttb_account s ON s.ac_gl_no = h.ac_no AND s.branch_code = h.ac_branch
+WHERE  h.module = 'CL';
+
+PROMPT --- 8.4 CLTB_ACCOUNT_SCHEDULES -> CLTB_ACCOUNT_APPS_MASTER join ---
+SELECT COUNT(*) AS nb_schedule_lines,
+       COUNT(DISTINCT s.account_number) AS nb_distinct_accounts,
+       SUM(CASE WHEN m.account_number IS NULL THEN 1 ELSE 0 END) AS schedule_lines_without_master
+FROM   cltb_account_schedules s
+LEFT   JOIN cltb_account_apps_master m ON m.account_number = s.account_number;
+
+PROMPT --- 8.5 Customer account behind a loan via CR_PROD_AC / DR_PROD_AC ---
+SELECT COUNT(*) AS total_loans,
+       SUM(CASE WHEN cr_s.ac_or_gl = 'A' THEN 1 ELSE 0 END) AS cr_prod_is_customer,
+       SUM(CASE WHEN cr_s.ac_or_gl = 'G' THEN 1 ELSE 0 END) AS cr_prod_is_gl,
+       SUM(CASE WHEN dr_s.ac_or_gl = 'A' THEN 1 ELSE 0 END) AS dr_prod_is_customer,
+       SUM(CASE WHEN dr_s.ac_or_gl = 'G' THEN 1 ELSE 0 END) AS dr_prod_is_gl
+FROM   cltb_account_apps_master m
+LEFT   JOIN sttb_account cr_s ON cr_s.ac_gl_no = m.cr_prod_ac AND cr_s.branch_code = m.cr_acc_brn
+LEFT   JOIN sttb_account dr_s ON dr_s.ac_gl_no = m.dr_prod_ac AND dr_s.branch_code = m.dr_acc_brn;
+
+PROMPT --- 8.6 Tagged amount_tag from ACTB_HISTORY also defined in CSTB_AMOUNT_TAG ---
+SELECT COUNT(DISTINCT h.amount_tag) AS distinct_tags_in_history,
+       SUM(CASE WHEN t.amount_tag IS NULL THEN 1 ELSE 0 END) AS tags_not_in_dictionary
+FROM  (SELECT DISTINCT amount_tag FROM actb_history WHERE module = 'CL') h
+LEFT   JOIN cstb_amount_tag t ON t.module = 'CL' AND t.amount_tag = h.amount_tag;
+
+PROMPT --- 8.7 End-to-end sample : last 5 CL loans with their product + main GLs + schedule summary ---
+SELECT m.account_number,
+       m.branch_code,
+       m.product_code,
+       p.product_desc,
+       p.product_category,
+       m.currency,
+       m.amount_financed,
+       m.amount_disbursed,
+       m.value_date,
+       m.maturity_date,
+       m.user_defined_status,
+       m.cr_prod_ac,
+       cr_s.ac_gl_desc AS cr_prod_ac_desc,
+       m.dr_prod_ac,
+       dr_s.ac_gl_desc AS dr_prod_ac_desc,
+       (SELECT SUM(amount_overdue) FROM cltb_account_schedules s WHERE s.account_number = m.account_number) AS total_overdue
+FROM   cltb_account_apps_master m
+LEFT   JOIN cltm_product p   ON p.product_code = m.product_code
+LEFT   JOIN sttb_account cr_s ON cr_s.ac_gl_no = m.cr_prod_ac AND cr_s.branch_code = m.cr_acc_brn
+LEFT   JOIN sttb_account dr_s ON dr_s.ac_gl_no = m.dr_prod_ac AND dr_s.branch_code = m.dr_acc_brn
+WHERE  m.auth_stat = 'A'
+ORDER  BY m.book_date DESC NULLS LAST
+FETCH  FIRST 5 ROWS ONLY;
+
+SPOOL OFF
+SET FEEDBACK ON
