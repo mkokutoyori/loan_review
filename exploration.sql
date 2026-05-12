@@ -315,5 +315,128 @@ BEGIN
                    'trkpay='||NVL(r.track_payable,'-'));
     END LOOP;
 
+    print_section('5. ACTB_HISTORY (ecritures comptables module CL)');
+
+    print_sub('5.1 Evenements distincts module CL');
+    FOR r IN (
+        SELECT event,
+               COUNT(*) AS nb_entries,
+               COUNT(DISTINCT trn_ref_no) AS nb_contracts
+        FROM   actb_history
+        WHERE  module = 'CL'
+        GROUP  BY event
+        ORDER  BY nb_entries DESC
+    ) LOOP
+        print_line(RPAD('event='||NVL(r.event,'-'),15) ||
+                   'entries=' || RPAD(TO_CHAR(r.nb_entries),12) ||
+                   'contracts=' || r.nb_contracts);
+    END LOOP;
+
+    print_sub('5.2 Balises (amount_tag) utilisees module CL');
+    FOR r IN (
+        SELECT amount_tag,
+               COUNT(*) AS nb_entries,
+               SUM(CASE WHEN drcr_ind = 'D' THEN lcy_amount ELSE 0 END) AS sum_dr,
+               SUM(CASE WHEN drcr_ind = 'C' THEN lcy_amount ELSE 0 END) AS sum_cr
+        FROM   actb_history
+        WHERE  module = 'CL'
+        GROUP  BY amount_tag
+        ORDER  BY nb_entries DESC
+    ) LOOP
+        print_line(RPAD('tag='||NVL(r.amount_tag,'-'),28) ||
+                   'nb=' || RPAD(TO_CHAR(r.nb_entries),10) ||
+                   'sumDR=' || RPAD(TO_CHAR(NVL(r.sum_dr,0),'FM999999999990.00'),22) ||
+                   'sumCR=' || TO_CHAR(NVL(r.sum_cr,0),'FM999999999990.00'));
+    END LOOP;
+
+    print_sub('5.3 Top 50 combinaisons event x amount_tag x DR/CR');
+    FOR r IN (
+        SELECT *
+          FROM (SELECT event, amount_tag, drcr_ind,
+                       COUNT(*)        AS nb,
+                       SUM(lcy_amount) AS sum_lcy
+                  FROM actb_history
+                 WHERE module = 'CL'
+                 GROUP BY event, amount_tag, drcr_ind
+                 ORDER BY COUNT(*) DESC)
+         WHERE ROWNUM <= 50
+    ) LOOP
+        print_line(RPAD('event='||r.event,15) ||
+                   RPAD('tag='||r.amount_tag,28) ||
+                   RPAD('drcr='||r.drcr_ind,8) ||
+                   'nb=' || RPAD(TO_CHAR(r.nb),10) ||
+                   'sumLCY=' || TO_CHAR(NVL(r.sum_lcy,0),'FM999999999990.00'));
+    END LOOP;
+
+    print_sub('5.4 Codes de transaction (trn_code) module CL');
+    FOR r IN (
+        SELECT trn_code, COUNT(*) AS nb
+        FROM   actb_history
+        WHERE  module = 'CL'
+        GROUP  BY trn_code
+        ORDER  BY nb DESC
+    ) LOOP
+        print_kv('trn_code ' || NVL(r.trn_code,'-'), TO_CHAR(r.nb));
+    END LOOP;
+
+    print_sub('5.5 Produits utilises dans les ecritures CL');
+    FOR r IN (
+        SELECT product, COUNT(*) AS nb_entries,
+               COUNT(DISTINCT ac_no) AS nb_accounts
+        FROM   actb_history
+        WHERE  module = 'CL'
+        GROUP  BY product
+        ORDER  BY nb_entries DESC
+    ) LOOP
+        print_line(RPAD('product='||NVL(r.product,'-'),18) ||
+                   'entries=' || RPAD(TO_CHAR(r.nb_entries),12) ||
+                   'distinct_ac=' || r.nb_accounts);
+    END LOOP;
+
+    print_sub('5.6 Echantillon des 15 dernieres ecritures CL');
+    FOR r IN (
+        SELECT *
+          FROM (SELECT trn_ref_no, event, event_sr_no, ac_branch, ac_no, ac_ccy,
+                       drcr_ind, trn_code, amount_tag,
+                       fcy_amount, lcy_amount,
+                       related_account, related_reference,
+                       trn_dt, value_dt, product
+                  FROM actb_history
+                 WHERE module = 'CL'
+                 ORDER BY trn_dt DESC, entry_seq_no DESC)
+         WHERE ROWNUM <= 15
+    ) LOOP
+        print_line(RPAD(r.trn_ref_no,18) ||
+                   RPAD('ev='||r.event,12) ||
+                   RPAD('sr='||TO_CHAR(r.event_sr_no),8) ||
+                   RPAD('br='||r.ac_branch,7) ||
+                   RPAD('ac='||r.ac_no,18) ||
+                   RPAD('ccy='||r.ac_ccy,8) ||
+                   RPAD('dc='||r.drcr_ind,6) ||
+                   RPAD('tag='||r.amount_tag,18) ||
+                   RPAD('lcy='||TO_CHAR(NVL(r.lcy_amount,0),'FM999999999990.00'),20) ||
+                   RPAD('trn_dt='||TO_CHAR(r.trn_dt,'YYYY-MM-DD'),18) ||
+                   'prod='||NVL(r.product,'-'));
+    END LOOP;
+
+    print_sub('5.7 Top 30 ac_no les plus mouvementes par CL');
+    FOR r IN (
+        SELECT *
+          FROM (SELECT ac_no,
+                       COUNT(*) AS nb_entries,
+                       SUM(CASE WHEN drcr_ind='D' THEN lcy_amount ELSE 0 END) AS sum_dr,
+                       SUM(CASE WHEN drcr_ind='C' THEN lcy_amount ELSE 0 END) AS sum_cr
+                  FROM actb_history
+                 WHERE module = 'CL'
+                 GROUP BY ac_no
+                 ORDER BY COUNT(*) DESC)
+         WHERE ROWNUM <= 30
+    ) LOOP
+        print_line(RPAD('ac='||r.ac_no,22) ||
+                   'nb=' || RPAD(TO_CHAR(r.nb_entries),10) ||
+                   'sumDR=' || RPAD(TO_CHAR(NVL(r.sum_dr,0),'FM999999999990.00'),22) ||
+                   'sumCR=' || TO_CHAR(NVL(r.sum_cr,0),'FM999999999990.00'));
+    END LOOP;
+
 END;
 /
