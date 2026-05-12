@@ -349,6 +349,10 @@ DECLARE
 
 BEGIN
 
+    -- Buffer illimite (oracle 11gR2+). Indispensable car SET SERVEROUTPUT
+    -- SIZE UNLIMITED cote client n'est pas toujours honore par tous les outils.
+    DBMS_OUTPUT.ENABLE(NULL);
+
     -- ============================================================
     -- SECTION 1 – AMOUNT TAGS DU MODULE CL (cstb_amount_tag)
     -- ============================================================
