@@ -183,3 +183,64 @@ WHERE  module = 'CL'
         OR UPPER(amount_tag) LIKE '%SUSP%'
         OR UPPER(amount_tag) LIKE '%POOL%')
 ORDER  BY amount_tag;
+
+PROMPT ============================================================
+PROMPT SECTION 5 - ACTB_HISTORY (module CL accounting entries)
+PROMPT ============================================================
+
+PROMPT --- 5.1 Distinct events used in CL ---
+SELECT event, COUNT(*) AS nb_entries, COUNT(DISTINCT trn_ref_no) AS nb_contracts
+FROM   actb_history
+WHERE  module = 'CL'
+GROUP  BY event
+ORDER  BY nb_entries DESC;
+
+PROMPT --- 5.2 Distinct amount_tag used in CL ---
+SELECT amount_tag, COUNT(*) AS nb_entries,
+       SUM(CASE WHEN drcr_ind = 'D' THEN lcy_amount ELSE 0 END) AS sum_dr_lcy,
+       SUM(CASE WHEN drcr_ind = 'C' THEN lcy_amount ELSE 0 END) AS sum_cr_lcy
+FROM   actb_history
+WHERE  module = 'CL'
+GROUP  BY amount_tag
+ORDER  BY nb_entries DESC;
+
+PROMPT --- 5.3 Event x amount_tag matrix (top combinations) ---
+SELECT event, amount_tag, drcr_ind, COUNT(*) AS nb,
+       SUM(lcy_amount) AS sum_lcy
+FROM   actb_history
+WHERE  module = 'CL'
+GROUP  BY event, amount_tag, drcr_ind
+ORDER  BY nb DESC FETCH FIRST 50 ROWS ONLY;
+
+PROMPT --- 5.4 Distinct trn_code in CL ---
+SELECT trn_code, COUNT(*) AS nb_entries
+FROM   actb_history
+WHERE  module = 'CL'
+GROUP  BY trn_code
+ORDER  BY nb_entries DESC;
+
+PROMPT --- 5.5 Distinct products used through CL entries ---
+SELECT product, COUNT(*) AS nb_entries, COUNT(DISTINCT ac_no) AS nb_accounts
+FROM   actb_history
+WHERE  module = 'CL'
+GROUP  BY product
+ORDER  BY nb_entries DESC;
+
+PROMPT --- 5.6 Sample CL entries (last 15 by trn_dt) ---
+SELECT *
+FROM   (SELECT trn_ref_no, event, event_sr_no, ac_branch, ac_no, ac_ccy,
+               drcr_ind, trn_code, amount_tag, fcy_amount, lcy_amount,
+               related_account, related_reference, trn_dt, value_dt, product
+        FROM   actb_history
+        WHERE  module = 'CL'
+        ORDER  BY trn_dt DESC, entry_seq_no DESC)
+WHERE  ROWNUM <= 15;
+
+PROMPT --- 5.7 GL accounts (ac_no) most hit by CL entries ---
+SELECT ac_no, COUNT(*) AS nb_entries,
+       SUM(CASE WHEN drcr_ind = 'D' THEN lcy_amount ELSE 0 END) AS sum_dr_lcy,
+       SUM(CASE WHEN drcr_ind = 'C' THEN lcy_amount ELSE 0 END) AS sum_cr_lcy
+FROM   actb_history
+WHERE  module = 'CL'
+GROUP  BY ac_no
+ORDER  BY nb_entries DESC FETCH FIRST 30 ROWS ONLY;
