@@ -61,15 +61,18 @@ DECLARE
     -- SECTION 3 : DOSSIERS DE CREDIT - COMPTES DR/CR PROD
     -- --------------------------------------------------------
     CURSOR c_dr_cr_prod IS
-        SELECT
-            DR_PROD_AC,
-            CR_PROD_AC,
-            COUNT(*) AS NB_DOSSIERS
-        FROM cltb_account_apps_master
-        WHERE DR_PROD_AC IS NOT NULL OR CR_PROD_AC IS NOT NULL
-        GROUP BY DR_PROD_AC, CR_PROD_AC
-        ORDER BY NB_DOSSIERS DESC
-        FETCH FIRST 40 ROWS ONLY;
+        SELECT *
+        FROM (
+            SELECT
+                DR_PROD_AC,
+                CR_PROD_AC,
+                COUNT(*) AS NB_DOSSIERS
+            FROM cltb_account_apps_master
+            WHERE DR_PROD_AC IS NOT NULL OR CR_PROD_AC IS NOT NULL
+            GROUP BY DR_PROD_AC, CR_PROD_AC
+            ORDER BY NB_DOSSIERS DESC
+        )
+        WHERE ROWNUM <= 40;
 
     CURSOR c_sample_loans IS
         SELECT
