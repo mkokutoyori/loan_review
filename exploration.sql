@@ -646,5 +646,131 @@ BEGIN
                    'nb=' || r.nb);
     END LOOP;
 
+    print_section('8. RELATIONS INTER-TABLES (jointures)');
+
+    print_sub('8.1 Couverture jointure CLTB_ACCOUNT_APPS_MASTER -> CLTM_PRODUCT');
+    FOR r IN (
+        SELECT COUNT(*) AS total,
+               SUM(CASE WHEN p.product_code IS NOT NULL THEN 1 ELSE 0 END) AS matched,
+               SUM(CASE WHEN p.product_code IS NULL     THEN 1 ELSE 0 END) AS unmatched
+        FROM   cltb_account_apps_master m
+        LEFT   JOIN cltm_product p ON p.product_code = m.product_code
+    ) LOOP
+        print_kv('Total contrats',   TO_CHAR(r.total));
+        print_kv('Avec produit',     TO_CHAR(r.matched));
+        print_kv('Sans produit',     TO_CHAR(r.unmatched));
+    END LOOP;
+
+    print_sub('8.2 ACTB_HISTORY(CL) -> CLTB_ACCOUNT_APPS_MASTER via trn_ref_no');
+    FOR r IN (
+        SELECT COUNT(*) AS nb_entries,
+               COUNT(DISTINCT h.trn_ref_no) AS nb_contracts,
+               SUM(CASE WHEN m.account_number IS NOT NULL THEN 1 ELSE 0 END) AS with_loan,
+               SUM(CASE WHEN m.account_number IS NULL     THEN 1 ELSE 0 END) AS without_loan
+        FROM   actb_history h
+        LEFT   JOIN cltb_account_apps_master m ON m.account_number = h.trn_ref_no
+        WHERE  h.module = 'CL'
+    ) LOOP
+        print_kv('Entries CL',           TO_CHAR(r.nb_entries));
+        print_kv('Contrats distincts',   TO_CHAR(r.nb_contracts));
+        print_kv('Entries avec loan',    TO_CHAR(r.with_loan));
+        print_kv('Entries sans loan',    TO_CHAR(r.without_loan));
+    END LOOP;
+
+    print_sub('8.3 Resolution ACTB_HISTORY.ac_no via STTB_ACCOUNT (GL vs client)');
+    FOR r IN (
+        SELECT SUM(CASE WHEN s.ac_or_gl = 'G' THEN 1 ELSE 0 END) AS hits_gl,
+               SUM(CASE WHEN s.ac_or_gl = 'A' THEN 1 ELSE 0 END) AS hits_cust,
+               SUM(CASE WHEN s.ac_or_gl IS NULL THEN 1 ELSE 0 END) AS unmatched
+        FROM   actb_history h
+        LEFT   JOIN sttb_account s ON s.ac_gl_no = h.ac_no AND s.branch_code = h.ac_branch
+        WHERE  h.module = 'CL'
+    ) LOOP
+        print_kv('ac_no resolu en GL',         TO_CHAR(r.hits_gl));
+        print_kv('ac_no resolu en cust ac',    TO_CHAR(r.hits_cust));
+        print_kv('ac_no non resolu',           TO_CHAR(r.unmatched));
+    END LOOP;
+
+    print_sub('8.4 CLTB_ACCOUNT_SCHEDULES -> CLTB_ACCOUNT_APPS_MASTER');
+    FOR r IN (
+        SELECT COUNT(*) AS nb_lines,
+               COUNT(DISTINCT s.account_number) AS nb_accounts,
+               SUM(CASE WHEN m.account_number IS NULL THEN 1 ELSE 0 END) AS without_master
+        FROM   cltb_account_schedules s
+        LEFT   JOIN cltb_account_apps_master m ON m.account_number = s.account_number
+    ) LOOP
+        print_kv('Lignes echeancier',         TO_CHAR(r.nb_lines));
+        print_kv('Comptes distincts',         TO_CHAR(r.nb_accounts));
+        print_kv('Lignes sans master',        TO_CHAR(r.without_master));
+    END LOOP;
+
+    print_sub('8.5 Nature des comptes CR_PROD_AC / DR_PROD_AC (client vs GL)');
+    FOR r IN (
+        SELECT COUNT(*) AS total,
+               SUM(CASE WHEN cr_s.ac_or_gl = 'A' THEN 1 ELSE 0 END) AS cr_cust,
+               SUM(CASE WHEN cr_s.ac_or_gl = 'G' THEN 1 ELSE 0 END) AS cr_gl,
+               SUM(CASE WHEN dr_s.ac_or_gl = 'A' THEN 1 ELSE 0 END) AS dr_cust,
+               SUM(CASE WHEN dr_s.ac_or_gl = 'G' THEN 1 ELSE 0 END) AS dr_gl
+        FROM   cltb_account_apps_master m
+        LEFT   JOIN sttb_account cr_s ON cr_s.ac_gl_no = m.cr_prod_ac AND cr_s.branch_code = m.cr_acc_brn
+        LEFT   JOIN sttb_account dr_s ON dr_s.ac_gl_no = m.dr_prod_ac AND dr_s.branch_code = m.dr_acc_brn
+    ) LOOP
+        print_kv('Total contrats',     TO_CHAR(r.total));
+        print_kv('CR_PROD_AC = client',TO_CHAR(r.cr_cust));
+        print_kv('CR_PROD_AC = GL',    TO_CHAR(r.cr_gl));
+        print_kv('DR_PROD_AC = client',TO_CHAR(r.dr_cust));
+        print_kv('DR_PROD_AC = GL',    TO_CHAR(r.dr_gl));
+    END LOOP;
+
+    print_sub('8.6 Amount_tag de l''historique CL vs dictionnaire CSTB_AMOUNT_TAG');
+    FOR r IN (
+        SELECT COUNT(DISTINCT h.amount_tag) AS distinct_tags,
+               SUM(CASE WHEN t.amount_tag IS NULL THEN 1 ELSE 0 END) AS not_in_dict
+        FROM  (SELECT DISTINCT amount_tag FROM actb_history WHERE module = 'CL') h
+        LEFT   JOIN cstb_amount_tag t ON t.module = 'CL' AND t.amount_tag = h.amount_tag
+    ) LOOP
+        print_kv('Tags CL distincts (history)',  TO_CHAR(r.distinct_tags));
+        print_kv('Tags absents du dictionnaire', TO_CHAR(r.not_in_dict));
+    END LOOP;
+
+    print_sub('8.7 Echantillon end-to-end : 5 derniers contrats + produit + GL + overdue');
+    FOR r IN (
+        SELECT *
+          FROM (SELECT m.account_number, m.branch_code, m.product_code,
+                       p.product_desc, p.product_category,
+                       m.currency, m.amount_financed, m.amount_disbursed,
+                       m.value_date, m.maturity_date, m.user_defined_status,
+                       m.cr_prod_ac, cr_s.ac_gl_desc AS cr_desc,
+                       m.dr_prod_ac, dr_s.ac_gl_desc AS dr_desc,
+                       (SELECT SUM(amount_overdue)
+                          FROM cltb_account_schedules s
+                         WHERE s.account_number = m.account_number) AS total_overdue
+                  FROM cltb_account_apps_master m
+                  LEFT JOIN cltm_product p   ON p.product_code = m.product_code
+                  LEFT JOIN sttb_account cr_s ON cr_s.ac_gl_no = m.cr_prod_ac AND cr_s.branch_code = m.cr_acc_brn
+                  LEFT JOIN sttb_account dr_s ON dr_s.ac_gl_no = m.dr_prod_ac AND dr_s.branch_code = m.dr_acc_brn
+                 WHERE m.auth_stat = 'A'
+                 ORDER BY m.book_date DESC NULLS LAST)
+         WHERE ROWNUM <= 5
+    ) LOOP
+        DBMS_OUTPUT.PUT_LINE('  -----------------------------------------------');
+        print_kv('account_number',        r.account_number);
+        print_kv('branch_code',           r.branch_code);
+        print_kv('product_code',          r.product_code);
+        print_kv('product_desc',          r.product_desc);
+        print_kv('product_category',      r.product_category);
+        print_kv('currency',              r.currency);
+        print_kv('amount_financed',       TO_CHAR(NVL(r.amount_financed,0),'FM999999999990.00'));
+        print_kv('amount_disbursed',      TO_CHAR(NVL(r.amount_disbursed,0),'FM999999999990.00'));
+        print_kv('value_date',            TO_CHAR(r.value_date,'YYYY-MM-DD'));
+        print_kv('maturity_date',         TO_CHAR(r.maturity_date,'YYYY-MM-DD'));
+        print_kv('user_defined_status',   r.user_defined_status);
+        print_kv('cr_prod_ac',            r.cr_prod_ac);
+        print_kv('cr_prod_ac_desc',       r.cr_desc);
+        print_kv('dr_prod_ac',            r.dr_prod_ac);
+        print_kv('dr_prod_ac_desc',       r.dr_desc);
+        print_kv('total_overdue',         TO_CHAR(NVL(r.total_overdue,0),'FM999999999990.00'));
+    END LOOP;
+
 END;
 /
