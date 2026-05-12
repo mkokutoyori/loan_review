@@ -31,7 +31,6 @@ DECLARE
     BEGIN
         DBMS_OUTPUT.PUT_LINE('  ' || p_text);
     END;
-
 BEGIN
 
     print_section('1. VOLUMETRIE GENERALE ET PERIMETRE MODULE CL');
@@ -54,12 +53,14 @@ BEGIN
     SELECT COUNT(*) INTO v_count FROM actb_history WHERE module = 'CL';
     print_kv('ACTB_HISTORY (module=CL)', TO_CHAR(v_count) || ' lignes');
 
-    print_sub('1.2 Repartition des modules dans ACTB_HISTORY');
+    print_sub('1.2 Repartition des modules dans ACTB_HISTORY (top 20)');
     FOR r IN (
-        SELECT module, COUNT(*) AS nb
-        FROM   actb_history
-        GROUP  BY module
-        ORDER  BY nb DESC
+        SELECT * FROM (
+            SELECT module, COUNT(*) AS nb
+            FROM   actb_history
+            GROUP  BY module
+            ORDER  BY COUNT(*) DESC
+        ) WHERE ROWNUM <= 20
     ) LOOP
         print_kv('Module ' || NVL(r.module,'<NULL>'), TO_CHAR(r.nb) || ' lignes');
     END LOOP;
@@ -67,7 +68,7 @@ BEGIN
     print_sub('1.3 Branches actives sur module CL');
     FOR r IN (
         SELECT ac_branch,
-               COUNT(*)            AS nb_entries,
+               COUNT(*)              AS nb_entries,
                COUNT(DISTINCT ac_no) AS nb_accounts
         FROM   actb_history
         WHERE  module = 'CL'
@@ -89,6 +90,25 @@ BEGIN
     print_kv('Premiere value_dt',   TO_CHAR(v_min_vdt,'YYYY-MM-DD'));
     print_kv('Derniere value_dt',   TO_CHAR(v_max_vdt,'YYYY-MM-DD'));
 
+END;
+/
+
+DECLARE
+    v_sep     VARCHAR2(120) := RPAD('=', 120, '=');
+    PROCEDURE print_section(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE(v_sep);
+        DBMS_OUTPUT.PUT_LINE('>>> ' || p_title); DBMS_OUTPUT.PUT_LINE(v_sep);
+    END;
+    PROCEDURE print_sub(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE('--- ' || p_title || ' ---');
+    END;
+    PROCEDURE print_kv(p_label VARCHAR2, p_value VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || RPAD(p_label, 45, '.') || ' ' || NVL(p_value, 'NULL / NON RENSEIGNE'));
+    END;
+    PROCEDURE print_line(p_text VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || p_text);
+    END;
+BEGIN
     print_section('2. CLTM_PRODUCT (catalogue produits credit)');
 
     print_sub('2.1 Repartition par product_category');
@@ -96,7 +116,7 @@ BEGIN
         SELECT product_category, COUNT(*) AS nb
         FROM   cltm_product
         GROUP  BY product_category
-        ORDER  BY nb DESC
+        ORDER  BY COUNT(*) DESC
     ) LOOP
         print_kv('Category ' || NVL(r.product_category,'<NULL>'), TO_CHAR(r.nb) || ' produits');
     END LOOP;
@@ -106,7 +126,7 @@ BEGIN
         SELECT module_code, product_type, contract_type, COUNT(*) AS nb
         FROM   cltm_product
         GROUP  BY module_code, product_type, contract_type
-        ORDER  BY module_code, nb DESC
+        ORDER  BY module_code, COUNT(*) DESC
     ) LOOP
         print_line(RPAD('module='||NVL(r.module_code,'-'),15) ||
                    RPAD('type='||NVL(r.product_type,'-'),15) ||
@@ -114,13 +134,15 @@ BEGIN
                    'nb=' || r.nb);
     END LOOP;
 
-    print_sub('2.3 Liste des produits autorises');
+    print_sub('2.3 Liste des produits autorises (max 100)');
     FOR r IN (
-        SELECT product_code, product_desc, product_category, product_type,
-               contract_type, module_code, product_end_date, record_stat, auth_stat
-        FROM   cltm_product
-        WHERE  auth_stat = 'A'
-        ORDER  BY product_category, product_code
+        SELECT * FROM (
+            SELECT product_code, product_desc, product_category, product_type,
+                   contract_type, module_code, product_end_date
+            FROM   cltm_product
+            WHERE  auth_stat = 'A'
+            ORDER  BY product_category, product_code
+        ) WHERE ROWNUM <= 100
     ) LOOP
         print_line(RPAD(r.product_code,12) ||
                    RPAD(SUBSTR(r.product_desc,1,40),42) ||
@@ -131,14 +153,16 @@ BEGIN
                    'end='||TO_CHAR(r.product_end_date,'YYYY-MM-DD'));
     END LOOP;
 
-    print_sub('2.4 Flags produits (revolving / packing / lease / IC / projet)');
+    print_sub('2.4 Flags produits (max 100)');
     FOR r IN (
-        SELECT product_code, revolving_type, open_line_loan, packing_credit,
-               lease_type, cl_against_bill, ic_product, project_account,
-               fa_product, limits_product
-        FROM   cltm_product
-        WHERE  auth_stat = 'A'
-        ORDER  BY product_code
+        SELECT * FROM (
+            SELECT product_code, revolving_type, open_line_loan, packing_credit,
+                   lease_type, cl_against_bill, ic_product, project_account,
+                   fa_product, limits_product
+            FROM   cltm_product
+            WHERE  auth_stat = 'A'
+            ORDER  BY product_code
+        ) WHERE ROWNUM <= 100
     ) LOOP
         print_line(RPAD(r.product_code,12) ||
                    RPAD('rev='||NVL(r.revolving_type,'-'),10) ||
@@ -151,7 +175,26 @@ BEGIN
                    RPAD('fa='||NVL(r.fa_product,'-'),8) ||
                    'limits='||NVL(r.limits_product,'-'));
     END LOOP;
+END;
+/
 
+DECLARE
+    v_count   NUMBER;
+    v_sep     VARCHAR2(120) := RPAD('=', 120, '=');
+    PROCEDURE print_section(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE(v_sep);
+        DBMS_OUTPUT.PUT_LINE('>>> ' || p_title); DBMS_OUTPUT.PUT_LINE(v_sep);
+    END;
+    PROCEDURE print_sub(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE('--- ' || p_title || ' ---');
+    END;
+    PROCEDURE print_kv(p_label VARCHAR2, p_value VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || RPAD(p_label, 45, '.') || ' ' || NVL(p_value, 'NULL / NON RENSEIGNE'));
+    END;
+    PROCEDURE print_line(p_text VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || p_text);
+    END;
+BEGIN
     print_section('3. CLTB_ACCOUNT_APPS_MASTER (contrats de credit)');
 
     print_sub('3.1 Repartition account_status / auth_stat');
@@ -159,7 +202,7 @@ BEGIN
         SELECT account_status, auth_stat, COUNT(*) AS nb
         FROM   cltb_account_apps_master
         GROUP  BY account_status, auth_stat
-        ORDER  BY nb DESC
+        ORDER  BY COUNT(*) DESC
     ) LOOP
         print_line(RPAD('account_status='||NVL(r.account_status,'-'),25) ||
                    RPAD('auth_stat='||NVL(r.auth_stat,'-'),18) ||
@@ -168,13 +211,12 @@ BEGIN
 
     print_sub('3.2 Repartition par user_defined_status (axe NPL)');
     FOR r IN (
-        SELECT user_defined_status,
-               COUNT(*)             AS nb,
-               SUM(amount_financed) AS sum_fin,
+        SELECT user_defined_status, COUNT(*) AS nb,
+               SUM(amount_financed)  AS sum_fin,
                SUM(amount_disbursed) AS sum_dsb
         FROM   cltb_account_apps_master
         GROUP  BY user_defined_status
-        ORDER  BY nb DESC
+        ORDER  BY COUNT(*) DESC
     ) LOOP
         print_line(RPAD('uds='||NVL(r.user_defined_status,'<NULL>'),25) ||
                    'nb=' || RPAD(TO_CHAR(r.nb),10) ||
@@ -182,31 +224,28 @@ BEGIN
                    'dsb=' || TO_CHAR(NVL(r.sum_dsb,0),'FM999999999990.00'));
     END LOOP;
 
-    print_sub('3.3 Repartition branche / produit / categorie');
+    print_sub('3.3 Repartition produit / categorie (toutes branches confondues)');
     FOR r IN (
-        SELECT branch_code, product_code, product_category,
-               COUNT(*) AS nb,
-               SUM(amount_financed) AS sum_fin
+        SELECT product_code, product_category,
+               COUNT(*) AS nb, SUM(amount_financed) AS sum_fin
         FROM   cltb_account_apps_master
-        GROUP  BY branch_code, product_code, product_category
-        ORDER  BY branch_code, nb DESC
+        GROUP  BY product_code, product_category
+        ORDER  BY COUNT(*) DESC
     ) LOOP
-        print_line(RPAD('BR='||r.branch_code,8) ||
-                   RPAD('prod='||r.product_code,15) ||
+        print_line(RPAD('prod='||r.product_code,15) ||
                    RPAD('cat='||NVL(r.product_category,'-'),12) ||
-                   'nb=' || RPAD(TO_CHAR(r.nb),8) ||
+                   'nb=' || RPAD(TO_CHAR(r.nb),10) ||
                    'fin=' || TO_CHAR(NVL(r.sum_fin,0),'FM999999999990.00'));
     END LOOP;
 
     print_sub('3.4 Repartition module_code / devise');
     FOR r IN (
-        SELECT module_code, currency,
-               COUNT(*) AS nb,
+        SELECT module_code, currency, COUNT(*) AS nb,
                SUM(amount_financed) AS sum_fin,
                SUM(amount_disbursed) AS sum_dsb
         FROM   cltb_account_apps_master
         GROUP  BY module_code, currency
-        ORDER  BY nb DESC
+        ORDER  BY COUNT(*) DESC
     ) LOOP
         print_line(RPAD('module='||NVL(r.module_code,'-'),12) ||
                    RPAD('ccy='||NVL(r.currency,'-'),10) ||
@@ -217,16 +256,14 @@ BEGIN
 
     print_sub('3.5 Echantillon : 10 derniers contrats authentifies');
     FOR r IN (
-        SELECT *
-          FROM (SELECT account_number, branch_code, customer_id, product_code,
-                       currency, amount_financed, amount_disbursed,
-                       value_date, maturity_date,
-                       account_status, user_defined_status,
-                       dr_prod_ac, cr_prod_ac
-                  FROM cltb_account_apps_master
-                 WHERE auth_stat = 'A'
-                 ORDER BY book_date DESC NULLS LAST)
-         WHERE ROWNUM <= 10
+        SELECT * FROM (
+            SELECT account_number, branch_code, customer_id, product_code,
+                   currency, amount_financed, value_date,
+                   user_defined_status, dr_prod_ac, cr_prod_ac
+            FROM   cltb_account_apps_master
+            WHERE  auth_stat = 'A'
+            ORDER  BY book_date DESC NULLS LAST
+        ) WHERE ROWNUM <= 10
     ) LOOP
         print_line(RPAD(r.account_number,18) ||
                    RPAD('BR='||r.branch_code,8) ||
@@ -240,7 +277,7 @@ BEGIN
                    'cr='||NVL(r.cr_prod_ac,'-'));
     END LOOP;
 
-    print_sub('3.6 Couverture des comptes de reglement DR_PROD_AC / CR_PROD_AC');
+    print_sub('3.6 Couverture DR_PROD_AC / CR_PROD_AC');
     SELECT COUNT(*) INTO v_count FROM cltb_account_apps_master;
     print_kv('Total contrats', TO_CHAR(v_count));
     SELECT COUNT(DISTINCT dr_prod_ac) INTO v_count FROM cltb_account_apps_master;
@@ -251,34 +288,52 @@ BEGIN
     print_kv('CR_PROD_AC distincts', TO_CHAR(v_count));
     SELECT COUNT(cr_prod_ac) INTO v_count FROM cltb_account_apps_master;
     print_kv('CR_PROD_AC renseignes', TO_CHAR(v_count));
+END;
+/
 
-    print_section('4. CSTB_AMOUNT_TAG (dictionnaire des balises module CL)');
+DECLARE
+    v_sep     VARCHAR2(120) := RPAD('=', 120, '=');
+    PROCEDURE print_section(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE(v_sep);
+        DBMS_OUTPUT.PUT_LINE('>>> ' || p_title); DBMS_OUTPUT.PUT_LINE(v_sep);
+    END;
+    PROCEDURE print_sub(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE('--- ' || p_title || ' ---');
+    END;
+    PROCEDURE print_kv(p_label VARCHAR2, p_value VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || RPAD(p_label, 45, '.') || ' ' || NVL(p_value, 'NULL / NON RENSEIGNE'));
+    END;
+    PROCEDURE print_line(p_text VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || p_text);
+    END;
+BEGIN
+    print_section('4. CSTB_AMOUNT_TAG (dictionnaire balises module CL)');
 
     print_sub('4.1 Nombre de balises par module');
     FOR r IN (
         SELECT module, COUNT(*) AS nb
         FROM   cstb_amount_tag
         GROUP  BY module
-        ORDER  BY nb DESC
+        ORDER  BY COUNT(*) DESC
     ) LOOP
         print_kv('Module ' || NVL(r.module,'<NULL>'), TO_CHAR(r.nb) || ' balises');
     END LOOP;
 
-    print_sub('4.2 Toutes les balises module CL');
+    print_sub('4.2 Toutes les balises module CL (max 300)');
     FOR r IN (
-        SELECT amount_tag, description, amount_tag_type,
-               interest_allowed, charge_allowed, commission_allowed, tax_allowed,
-               unrealised, track_receivable, track_payable,
-               offset_amount_tag, user_defined
-        FROM   cstb_amount_tag
-        WHERE  module = 'CL'
-        ORDER  BY amount_tag
+        SELECT * FROM (
+            SELECT amount_tag, description, amount_tag_type,
+                   interest_allowed, unrealised, track_receivable, track_payable,
+                   offset_amount_tag, user_defined
+            FROM   cstb_amount_tag
+            WHERE  module = 'CL'
+            ORDER  BY amount_tag
+        ) WHERE ROWNUM <= 300
     ) LOOP
         print_line(RPAD(r.amount_tag,25) ||
                    RPAD(SUBSTR(NVL(r.description,'-'),1,45),47) ||
                    RPAD('type='||NVL(r.amount_tag_type,'-'),10) ||
                    RPAD('int='||NVL(r.interest_allowed,'-'),8) ||
-                   RPAD('chg='||NVL(r.charge_allowed,'-'),8) ||
                    RPAD('unrl='||NVL(r.unrealised,'-'),9) ||
                    RPAD('trkrcv='||NVL(r.track_receivable,'-'),11) ||
                    RPAD('trkpay='||NVL(r.track_payable,'-'),11) ||
@@ -314,34 +369,52 @@ BEGIN
                    RPAD('trkrcv='||NVL(r.track_receivable,'-'),11) ||
                    'trkpay='||NVL(r.track_payable,'-'));
     END LOOP;
+END;
+/
 
+DECLARE
+    v_sep     VARCHAR2(120) := RPAD('=', 120, '=');
+    PROCEDURE print_section(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE(v_sep);
+        DBMS_OUTPUT.PUT_LINE('>>> ' || p_title); DBMS_OUTPUT.PUT_LINE(v_sep);
+    END;
+    PROCEDURE print_sub(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE('--- ' || p_title || ' ---');
+    END;
+    PROCEDURE print_kv(p_label VARCHAR2, p_value VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || RPAD(p_label, 45, '.') || ' ' || NVL(p_value, 'NULL / NON RENSEIGNE'));
+    END;
+    PROCEDURE print_line(p_text VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || p_text);
+    END;
+BEGIN
     print_section('5. ACTB_HISTORY (ecritures comptables module CL)');
 
     print_sub('5.1 Evenements distincts module CL');
     FOR r IN (
-        SELECT event,
-               COUNT(*) AS nb_entries,
+        SELECT event, COUNT(*) AS nb_entries,
                COUNT(DISTINCT trn_ref_no) AS nb_contracts
         FROM   actb_history
         WHERE  module = 'CL'
         GROUP  BY event
-        ORDER  BY nb_entries DESC
+        ORDER  BY COUNT(*) DESC
     ) LOOP
         print_line(RPAD('event='||NVL(r.event,'-'),15) ||
                    'entries=' || RPAD(TO_CHAR(r.nb_entries),12) ||
                    'contracts=' || r.nb_contracts);
     END LOOP;
 
-    print_sub('5.2 Balises (amount_tag) utilisees module CL');
+    print_sub('5.2 Balises (amount_tag) utilisees module CL (top 100)');
     FOR r IN (
-        SELECT amount_tag,
-               COUNT(*) AS nb_entries,
-               SUM(CASE WHEN drcr_ind = 'D' THEN lcy_amount ELSE 0 END) AS sum_dr,
-               SUM(CASE WHEN drcr_ind = 'C' THEN lcy_amount ELSE 0 END) AS sum_cr
-        FROM   actb_history
-        WHERE  module = 'CL'
-        GROUP  BY amount_tag
-        ORDER  BY nb_entries DESC
+        SELECT * FROM (
+            SELECT amount_tag, COUNT(*) AS nb_entries,
+                   SUM(CASE WHEN drcr_ind='D' THEN lcy_amount ELSE 0 END) AS sum_dr,
+                   SUM(CASE WHEN drcr_ind='C' THEN lcy_amount ELSE 0 END) AS sum_cr
+            FROM   actb_history
+            WHERE  module = 'CL'
+            GROUP  BY amount_tag
+            ORDER  BY COUNT(*) DESC
+        ) WHERE ROWNUM <= 100
     ) LOOP
         print_line(RPAD('tag='||NVL(r.amount_tag,'-'),28) ||
                    'nb=' || RPAD(TO_CHAR(r.nb_entries),10) ||
@@ -351,15 +424,14 @@ BEGIN
 
     print_sub('5.3 Top 50 combinaisons event x amount_tag x DR/CR');
     FOR r IN (
-        SELECT *
-          FROM (SELECT event, amount_tag, drcr_ind,
-                       COUNT(*)        AS nb,
-                       SUM(lcy_amount) AS sum_lcy
-                  FROM actb_history
-                 WHERE module = 'CL'
-                 GROUP BY event, amount_tag, drcr_ind
-                 ORDER BY COUNT(*) DESC)
-         WHERE ROWNUM <= 50
+        SELECT * FROM (
+            SELECT event, amount_tag, drcr_ind, COUNT(*) AS nb,
+                   SUM(lcy_amount) AS sum_lcy
+            FROM   actb_history
+            WHERE  module = 'CL'
+            GROUP  BY event, amount_tag, drcr_ind
+            ORDER  BY COUNT(*) DESC
+        ) WHERE ROWNUM <= 50
     ) LOOP
         print_line(RPAD('event='||r.event,15) ||
                    RPAD('tag='||r.amount_tag,28) ||
@@ -368,47 +440,45 @@ BEGIN
                    'sumLCY=' || TO_CHAR(NVL(r.sum_lcy,0),'FM999999999990.00'));
     END LOOP;
 
-    print_sub('5.4 Codes de transaction (trn_code) module CL');
+    print_sub('5.4 trn_code module CL (top 30)');
     FOR r IN (
-        SELECT trn_code, COUNT(*) AS nb
-        FROM   actb_history
-        WHERE  module = 'CL'
-        GROUP  BY trn_code
-        ORDER  BY nb DESC
+        SELECT * FROM (
+            SELECT trn_code, COUNT(*) AS nb
+            FROM   actb_history
+            WHERE  module = 'CL'
+            GROUP  BY trn_code
+            ORDER  BY COUNT(*) DESC
+        ) WHERE ROWNUM <= 30
     ) LOOP
         print_kv('trn_code ' || NVL(r.trn_code,'-'), TO_CHAR(r.nb));
     END LOOP;
 
-    print_sub('5.5 Produits utilises dans les ecritures CL');
+    print_sub('5.5 Produits utilises dans ecritures CL');
     FOR r IN (
         SELECT product, COUNT(*) AS nb_entries,
                COUNT(DISTINCT ac_no) AS nb_accounts
         FROM   actb_history
         WHERE  module = 'CL'
         GROUP  BY product
-        ORDER  BY nb_entries DESC
+        ORDER  BY COUNT(*) DESC
     ) LOOP
         print_line(RPAD('product='||NVL(r.product,'-'),18) ||
                    'entries=' || RPAD(TO_CHAR(r.nb_entries),12) ||
                    'distinct_ac=' || r.nb_accounts);
     END LOOP;
 
-    print_sub('5.6 Echantillon des 15 dernieres ecritures CL');
+    print_sub('5.6 Echantillon des 10 dernieres ecritures CL');
     FOR r IN (
-        SELECT *
-          FROM (SELECT trn_ref_no, event, event_sr_no, ac_branch, ac_no, ac_ccy,
-                       drcr_ind, trn_code, amount_tag,
-                       fcy_amount, lcy_amount,
-                       related_account, related_reference,
-                       trn_dt, value_dt, product
-                  FROM actb_history
-                 WHERE module = 'CL'
-                 ORDER BY trn_dt DESC, entry_seq_no DESC)
-         WHERE ROWNUM <= 15
+        SELECT * FROM (
+            SELECT trn_ref_no, event, ac_branch, ac_no, ac_ccy,
+                   drcr_ind, amount_tag, lcy_amount, trn_dt, product
+            FROM   actb_history
+            WHERE  module = 'CL'
+            ORDER  BY trn_dt DESC, entry_seq_no DESC
+        ) WHERE ROWNUM <= 10
     ) LOOP
         print_line(RPAD(r.trn_ref_no,18) ||
                    RPAD('ev='||r.event,12) ||
-                   RPAD('sr='||TO_CHAR(r.event_sr_no),8) ||
                    RPAD('br='||r.ac_branch,7) ||
                    RPAD('ac='||r.ac_no,18) ||
                    RPAD('ccy='||r.ac_ccy,8) ||
@@ -421,45 +491,61 @@ BEGIN
 
     print_sub('5.7 Top 30 ac_no les plus mouvementes par CL');
     FOR r IN (
-        SELECT *
-          FROM (SELECT ac_no,
-                       COUNT(*) AS nb_entries,
-                       SUM(CASE WHEN drcr_ind='D' THEN lcy_amount ELSE 0 END) AS sum_dr,
-                       SUM(CASE WHEN drcr_ind='C' THEN lcy_amount ELSE 0 END) AS sum_cr
-                  FROM actb_history
-                 WHERE module = 'CL'
-                 GROUP BY ac_no
-                 ORDER BY COUNT(*) DESC)
-         WHERE ROWNUM <= 30
+        SELECT * FROM (
+            SELECT ac_no, COUNT(*) AS nb_entries,
+                   SUM(CASE WHEN drcr_ind='D' THEN lcy_amount ELSE 0 END) AS sum_dr,
+                   SUM(CASE WHEN drcr_ind='C' THEN lcy_amount ELSE 0 END) AS sum_cr
+            FROM   actb_history
+            WHERE  module = 'CL'
+            GROUP  BY ac_no
+            ORDER  BY COUNT(*) DESC
+        ) WHERE ROWNUM <= 30
     ) LOOP
         print_line(RPAD('ac='||r.ac_no,22) ||
                    'nb=' || RPAD(TO_CHAR(r.nb_entries),10) ||
                    'sumDR=' || RPAD(TO_CHAR(NVL(r.sum_dr,0),'FM999999999990.00'),22) ||
                    'sumCR=' || TO_CHAR(NVL(r.sum_cr,0),'FM999999999990.00'));
     END LOOP;
+END;
+/
 
+DECLARE
+    v_sep     VARCHAR2(120) := RPAD('=', 120, '=');
+    PROCEDURE print_section(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE(v_sep);
+        DBMS_OUTPUT.PUT_LINE('>>> ' || p_title); DBMS_OUTPUT.PUT_LINE(v_sep);
+    END;
+    PROCEDURE print_sub(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE('--- ' || p_title || ' ---');
+    END;
+    PROCEDURE print_kv(p_label VARCHAR2, p_value VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || RPAD(p_label, 45, '.') || ' ' || NVL(p_value, 'NULL / NON RENSEIGNE'));
+    END;
+    PROCEDURE print_line(p_text VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || p_text);
+    END;
+BEGIN
     print_section('6. CLTB_ACCOUNT_SCHEDULES (echeanciers de credit)');
 
     print_sub('6.1 Component_name distincts');
     FOR r IN (
-        SELECT component_name,
-               COUNT(*) AS nb_lines,
+        SELECT component_name, COUNT(*) AS nb_lines,
                COUNT(DISTINCT account_number) AS nb_accounts
         FROM   cltb_account_schedules
         GROUP  BY component_name
-        ORDER  BY nb_lines DESC
+        ORDER  BY COUNT(*) DESC
     ) LOOP
         print_line(RPAD('comp='||NVL(r.component_name,'-'),22) ||
                    'lines=' || RPAD(TO_CHAR(r.nb_lines),12) ||
                    'accounts=' || r.nb_accounts);
     END LOOP;
 
-    print_sub('6.2 Schedule_type distincts');
+    print_sub('6.2 schedule_type distincts');
     FOR r IN (
         SELECT schedule_type, COUNT(*) AS nb
         FROM   cltb_account_schedules
         GROUP  BY schedule_type
-        ORDER  BY nb DESC
+        ORDER  BY COUNT(*) DESC
     ) LOOP
         print_kv('schedule_type ' || NVL(r.schedule_type,'-'), TO_CHAR(r.nb));
     END LOOP;
@@ -469,17 +555,16 @@ BEGIN
         SELECT schedule_flag, sch_status, COUNT(*) AS nb
         FROM   cltb_account_schedules
         GROUP  BY schedule_flag, sch_status
-        ORDER  BY nb DESC
+        ORDER  BY COUNT(*) DESC
     ) LOOP
         print_line(RPAD('flag='||NVL(r.schedule_flag,'-'),12) ||
                    RPAD('sch_status='||NVL(r.sch_status,'-'),18) ||
                    'nb=' || r.nb);
     END LOOP;
 
-    print_sub('6.4 Overdue snapshot par composant (amount_overdue > 0)');
+    print_sub('6.4 Overdue snapshot par composant');
     FOR r IN (
-        SELECT component_name,
-               COUNT(*) AS nb_lines,
+        SELECT component_name, COUNT(*) AS nb_lines,
                COUNT(DISTINCT account_number) AS nb_accounts,
                SUM(amount_overdue) AS sum_overdue,
                SUM(amount_due)     AS sum_due,
@@ -548,7 +633,25 @@ BEGIN
                    'wro=' || RPAD(TO_CHAR(NVL(r.sum_wro,0),'FM999999999990.00'),20) ||
                    'wai=' || TO_CHAR(NVL(r.sum_wai,0),'FM999999999990.00'));
     END LOOP;
+END;
+/
 
+DECLARE
+    v_sep     VARCHAR2(120) := RPAD('=', 120, '=');
+    PROCEDURE print_section(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE(v_sep);
+        DBMS_OUTPUT.PUT_LINE('>>> ' || p_title); DBMS_OUTPUT.PUT_LINE(v_sep);
+    END;
+    PROCEDURE print_sub(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE('--- ' || p_title || ' ---');
+    END;
+    PROCEDURE print_kv(p_label VARCHAR2, p_value VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || RPAD(p_label, 45, '.') || ' ' || NVL(p_value, 'NULL / NON RENSEIGNE'));
+    END;
+    PROCEDURE print_line(p_text VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || p_text);
+    END;
+BEGIN
     print_section('7. STTB_ACCOUNT (comptes GL et comptes client)');
 
     print_sub('7.1 Repartition AC_OR_GL');
@@ -567,24 +670,26 @@ BEGIN
         FROM   sttb_account
         WHERE  ac_or_gl = 'G'
         GROUP  BY gl_aclass_type, gl_category
-        ORDER  BY nb DESC
+        ORDER  BY COUNT(*) DESC
     ) LOOP
         print_line(RPAD('aclass_type='||NVL(r.gl_aclass_type,'-'),20) ||
                    RPAD('category='||NVL(r.gl_category,'-'),18) ||
                    'nb=' || r.nb);
     END LOOP;
 
-    print_sub('7.3 Repartition AC_CLASS');
+    print_sub('7.3 Repartition AC_CLASS (top 30)');
     FOR r IN (
-        SELECT ac_class, COUNT(*) AS nb
-        FROM   sttb_account
-        GROUP  BY ac_class
-        ORDER  BY nb DESC
+        SELECT * FROM (
+            SELECT ac_class, COUNT(*) AS nb
+            FROM   sttb_account
+            GROUP  BY ac_class
+            ORDER  BY COUNT(*) DESC
+        ) WHERE ROWNUM <= 30
     ) LOOP
         print_kv('AC_CLASS ' || NVL(r.ac_class,'<NULL>'), TO_CHAR(r.nb));
     END LOOP;
 
-    print_sub('7.4 GL candidats loss-pool / provision / NPL / impairment / write-off');
+    print_sub('7.4 GL candidats loss-pool / provision / NPL / impairment / writeoff');
     FOR r IN (
         SELECT ac_gl_no, branch_code, ac_gl_ccy, ac_gl_desc, ac_class,
                gl_aclass_type, gl_category, ac_natural_gl, auth_stat
@@ -611,18 +716,17 @@ BEGIN
                    'auth='||NVL(r.auth_stat,'-'));
     END LOOP;
 
-    print_sub('7.5 GL lies aux credits (LOAN / ADVANCE / CREDIT - top 50)');
+    print_sub('7.5 GL lies aux credits (LOAN/ADVANCE/CREDIT - max 50)');
     FOR r IN (
-        SELECT *
-          FROM (SELECT ac_gl_no, branch_code, ac_gl_ccy, ac_gl_desc,
-                       ac_class, ac_natural_gl
-                  FROM sttb_account
-                 WHERE ac_or_gl = 'G'
-                   AND (UPPER(ac_gl_desc) LIKE '%LOAN%'
-                        OR UPPER(ac_gl_desc) LIKE '%ADVANCE%'
-                        OR UPPER(ac_gl_desc) LIKE '%CREDIT%')
-                 ORDER BY branch_code, ac_gl_no)
-         WHERE ROWNUM <= 50
+        SELECT * FROM (
+            SELECT ac_gl_no, branch_code, ac_gl_ccy, ac_gl_desc, ac_class, ac_natural_gl
+            FROM   sttb_account
+            WHERE  ac_or_gl = 'G'
+              AND (UPPER(ac_gl_desc) LIKE '%LOAN%'
+                   OR UPPER(ac_gl_desc) LIKE '%ADVANCE%'
+                   OR UPPER(ac_gl_desc) LIKE '%CREDIT%')
+            ORDER BY branch_code, ac_gl_no
+        ) WHERE ROWNUM <= 50
     ) LOOP
         print_line(RPAD('gl='||r.ac_gl_no,18) ||
                    RPAD('br='||r.branch_code,7) ||
@@ -638,17 +742,35 @@ BEGIN
         FROM   sttb_account
         WHERE  ac_or_gl = 'G'
         GROUP  BY gl_stat_blocked, ac_stat_frozen, ac_stat_dormant
-        ORDER  BY nb DESC
+        ORDER  BY COUNT(*) DESC
     ) LOOP
         print_line(RPAD('blocked='||NVL(r.gl_stat_blocked,'-'),14) ||
                    RPAD('frozen='||NVL(r.ac_stat_frozen,'-'),14) ||
                    RPAD('dormant='||NVL(r.ac_stat_dormant,'-'),14) ||
                    'nb=' || r.nb);
     END LOOP;
+END;
+/
 
+DECLARE
+    v_sep     VARCHAR2(120) := RPAD('=', 120, '=');
+    PROCEDURE print_section(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE(v_sep);
+        DBMS_OUTPUT.PUT_LINE('>>> ' || p_title); DBMS_OUTPUT.PUT_LINE(v_sep);
+    END;
+    PROCEDURE print_sub(p_title VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE(''); DBMS_OUTPUT.PUT_LINE('--- ' || p_title || ' ---');
+    END;
+    PROCEDURE print_kv(p_label VARCHAR2, p_value VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || RPAD(p_label, 45, '.') || ' ' || NVL(p_value, 'NULL / NON RENSEIGNE'));
+    END;
+    PROCEDURE print_line(p_text VARCHAR2) IS BEGIN
+        DBMS_OUTPUT.PUT_LINE('  ' || p_text);
+    END;
+BEGIN
     print_section('8. RELATIONS INTER-TABLES (jointures)');
 
-    print_sub('8.1 Couverture jointure CLTB_ACCOUNT_APPS_MASTER -> CLTM_PRODUCT');
+    print_sub('8.1 CLTB_ACCOUNT_APPS_MASTER -> CLTM_PRODUCT');
     FOR r IN (
         SELECT COUNT(*) AS total,
                SUM(CASE WHEN p.product_code IS NOT NULL THEN 1 ELSE 0 END) AS matched,
@@ -677,7 +799,7 @@ BEGIN
         print_kv('Entries sans loan',    TO_CHAR(r.without_loan));
     END LOOP;
 
-    print_sub('8.3 Resolution ACTB_HISTORY.ac_no via STTB_ACCOUNT (GL vs client)');
+    print_sub('8.3 Resolution ACTB_HISTORY.ac_no via STTB_ACCOUNT');
     FOR r IN (
         SELECT SUM(CASE WHEN s.ac_or_gl = 'G' THEN 1 ELSE 0 END) AS hits_gl,
                SUM(CASE WHEN s.ac_or_gl = 'A' THEN 1 ELSE 0 END) AS hits_cust,
@@ -704,7 +826,7 @@ BEGIN
         print_kv('Lignes sans master',        TO_CHAR(r.without_master));
     END LOOP;
 
-    print_sub('8.5 Nature des comptes CR_PROD_AC / DR_PROD_AC (client vs GL)');
+    print_sub('8.5 Nature CR_PROD_AC / DR_PROD_AC');
     FOR r IN (
         SELECT COUNT(*) AS total,
                SUM(CASE WHEN cr_s.ac_or_gl = 'A' THEN 1 ELSE 0 END) AS cr_cust,
@@ -722,7 +844,7 @@ BEGIN
         print_kv('DR_PROD_AC = GL',    TO_CHAR(r.dr_gl));
     END LOOP;
 
-    print_sub('8.6 Amount_tag de l''historique CL vs dictionnaire CSTB_AMOUNT_TAG');
+    print_sub('8.6 amount_tag history CL vs dictionnaire');
     FOR r IN (
         SELECT COUNT(DISTINCT h.amount_tag) AS distinct_tags,
                SUM(CASE WHEN t.amount_tag IS NULL THEN 1 ELSE 0 END) AS not_in_dict
@@ -733,25 +855,25 @@ BEGIN
         print_kv('Tags absents du dictionnaire', TO_CHAR(r.not_in_dict));
     END LOOP;
 
-    print_sub('8.7 Echantillon end-to-end : 5 derniers contrats + produit + GL + overdue');
+    print_sub('8.7 Echantillon end-to-end : 3 derniers contrats');
     FOR r IN (
-        SELECT *
-          FROM (SELECT m.account_number, m.branch_code, m.product_code,
-                       p.product_desc, p.product_category,
-                       m.currency, m.amount_financed, m.amount_disbursed,
-                       m.value_date, m.maturity_date, m.user_defined_status,
-                       m.cr_prod_ac, cr_s.ac_gl_desc AS cr_desc,
-                       m.dr_prod_ac, dr_s.ac_gl_desc AS dr_desc,
-                       (SELECT SUM(amount_overdue)
-                          FROM cltb_account_schedules s
-                         WHERE s.account_number = m.account_number) AS total_overdue
-                  FROM cltb_account_apps_master m
-                  LEFT JOIN cltm_product p   ON p.product_code = m.product_code
-                  LEFT JOIN sttb_account cr_s ON cr_s.ac_gl_no = m.cr_prod_ac AND cr_s.branch_code = m.cr_acc_brn
-                  LEFT JOIN sttb_account dr_s ON dr_s.ac_gl_no = m.dr_prod_ac AND dr_s.branch_code = m.dr_acc_brn
-                 WHERE m.auth_stat = 'A'
-                 ORDER BY m.book_date DESC NULLS LAST)
-         WHERE ROWNUM <= 5
+        SELECT * FROM (
+            SELECT m.account_number, m.branch_code, m.product_code,
+                   p.product_desc, p.product_category,
+                   m.currency, m.amount_financed, m.amount_disbursed,
+                   m.value_date, m.maturity_date, m.user_defined_status,
+                   m.cr_prod_ac, cr_s.ac_gl_desc AS cr_desc,
+                   m.dr_prod_ac, dr_s.ac_gl_desc AS dr_desc,
+                   (SELECT SUM(amount_overdue)
+                      FROM cltb_account_schedules s
+                     WHERE s.account_number = m.account_number) AS total_overdue
+            FROM   cltb_account_apps_master m
+            LEFT JOIN cltm_product p   ON p.product_code = m.product_code
+            LEFT JOIN sttb_account cr_s ON cr_s.ac_gl_no = m.cr_prod_ac AND cr_s.branch_code = m.cr_acc_brn
+            LEFT JOIN sttb_account dr_s ON dr_s.ac_gl_no = m.dr_prod_ac AND dr_s.branch_code = m.dr_acc_brn
+            WHERE m.auth_stat = 'A'
+            ORDER BY m.book_date DESC NULLS LAST
+        ) WHERE ROWNUM <= 3
     ) LOOP
         DBMS_OUTPUT.PUT_LINE('  -----------------------------------------------');
         print_kv('account_number',        r.account_number);
@@ -771,6 +893,5 @@ BEGIN
         print_kv('dr_prod_ac_desc',       r.dr_desc);
         print_kv('total_overdue',         TO_CHAR(NVL(r.total_overdue,0),'FM999999999990.00'));
     END LOOP;
-
 END;
 /
