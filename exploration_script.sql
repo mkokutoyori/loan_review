@@ -163,3 +163,287 @@ SELECT DISTINCT
     pc.product_type
 FROM cltm_product_category pc
 ORDER BY pc.product_category;
+
+
+-- =============================================================================
+-- SECTION 3 : VUE D'ENSEMBLE DES DOSSIERS DE CREDIT (CLTB_ACCOUNT_APPS_MASTER)
+-- =============================================================================
+-- Objectif : Comprendre le volume et la repartition des dossiers de credit :
+--   - statuts (actif, liquide, NPL, en souffrance...)
+--   - produits utilises et montants finances / decaisses
+--   - comptes rattaches (dr_prod_ac / cr_prod_ac)
+--   - structure des champs cles
+-- =============================================================================
+
+PROMPT
+PROMPT =============================================================================
+PROMPT SECTION 3 : CLTB_ACCOUNT_APPS_MASTER - DOSSIERS DE CREDIT
+PROMPT =============================================================================
+PROMPT
+
+COLUMN account_status     FORMAT A16
+COLUMN derived_status     FORMAT A20
+COLUMN delinquency_status FORMAT A20
+COLUMN user_def_status    FORMAT A25
+COLUMN product_code       FORMAT A15
+COLUMN nb_dossiers        FORMAT 999,999,990
+COLUMN total_finance      FORMAT 999,999,999,990
+COLUMN total_decaisse     FORMAT 999,999,999,990
+COLUMN premier_credit     FORMAT A13
+COLUMN dernier_credit     FORMAT A13
+
+PROMPT --- 3a. Repartition par ACCOUNT_STATUS ---
+PROMPT
+
+SELECT
+    a.account_status,
+    COUNT(*)             nb_dossiers
+FROM cltb_account_apps_master a
+GROUP BY a.account_status
+ORDER BY nb_dossiers DESC;
+
+PROMPT
+PROMPT --- 3b. Repartition par DERIVED_STATUS ---
+PROMPT
+
+SELECT
+    a.derived_status,
+    COUNT(*)             nb_dossiers
+FROM cltb_account_apps_master a
+GROUP BY a.derived_status
+ORDER BY nb_dossiers DESC;
+
+PROMPT
+PROMPT --- 3c. Repartition par DELINQUENCY_STATUS ---
+PROMPT
+
+SELECT
+    a.delinquency_status,
+    COUNT(*)             nb_dossiers
+FROM cltb_account_apps_master a
+GROUP BY a.delinquency_status
+ORDER BY nb_dossiers DESC;
+
+PROMPT
+PROMPT --- 3d. Repartition par USER_DEFINED_STATUS ---
+PROMPT
+
+SELECT
+    a.user_defined_status,
+    COUNT(*)             nb_dossiers
+FROM cltb_account_apps_master a
+GROUP BY a.user_defined_status
+ORDER BY nb_dossiers DESC;
+
+PROMPT
+PROMPT --- 3e. Volumes par produit (montants finances et decaisses) ---
+PROMPT
+
+SELECT
+    a.product_code,
+    a.currency,
+    COUNT(*)                                    nb_dossiers,
+    SUM(a.amount_financed)                      total_finance,
+    SUM(a.amount_disbursed)                     total_decaisse,
+    TO_CHAR(MIN(a.book_date), 'DD-MON-YYYY')   premier_credit,
+    TO_CHAR(MAX(a.book_date), 'DD-MON-YYYY')   dernier_credit
+FROM cltb_account_apps_master a
+GROUP BY a.product_code, a.currency
+ORDER BY total_finance DESC;
+
+PROMPT
+PROMPT --- 3f. Repartition par BRANCH_CODE ---
+PROMPT
+
+SELECT
+    a.branch_code,
+    COUNT(*)             nb_dossiers,
+    SUM(a.amount_financed) total_finance
+FROM cltb_account_apps_master a
+GROUP BY a.branch_code
+ORDER BY nb_dossiers DESC;
+
+PROMPT
+PROMPT --- 3g. Comptes DR_PROD_AC et CR_PROD_AC distincts utilises ---
+PROMPT
+
+COLUMN dr_prod_ac FORMAT A20
+COLUMN cr_prod_ac FORMAT A20
+
+SELECT
+    a.dr_prod_ac,
+    a.cr_prod_ac,
+    COUNT(*) nb_dossiers
+FROM cltb_account_apps_master a
+WHERE a.dr_prod_ac IS NOT NULL OR a.cr_prod_ac IS NOT NULL
+GROUP BY a.dr_prod_ac, a.cr_prod_ac
+ORDER BY nb_dossiers DESC;
+
+PROMPT
+PROMPT --- 3h. Echantillon de 5 dossiers recents (colonnes cles) ---
+PROMPT
+
+COLUMN account_number         FORMAT A20
+COLUMN customer_id            FORMAT A15
+COLUMN primary_applicant_name FORMAT A35
+COLUMN branch_code            FORMAT A12
+COLUMN currency               FORMAT A5
+COLUMN amount_financed        FORMAT 999,999,999,990
+COLUMN amount_disbursed       FORMAT 999,999,999,990
+
+SELECT *
+FROM (
+    SELECT
+        a.account_number,
+        a.customer_id,
+        a.primary_applicant_name,
+        a.product_code,
+        a.branch_code,
+        a.currency,
+        a.book_date,
+        a.maturity_date,
+        a.amount_financed,
+        a.amount_disbursed,
+        a.account_status,
+        a.derived_status,
+        a.delinquency_status,
+        a.dr_prod_ac,
+        a.cr_prod_ac
+    FROM cltb_account_apps_master a
+    ORDER BY a.book_date DESC
+)
+WHERE ROWNUM <= 5;
+
+
+-- =============================================================================
+-- SECTION 4 : TRANSACTIONS DE CREDIT DANS ACTB_HISTORY (MODULE = 'CL')
+-- =============================================================================
+-- Objectif : Comprendre comment les operations de credit sont enregistrees :
+--   - quels AMOUNT_TAG sont utilises (principal, interets, provisions...)
+--   - quels EVENTs sont declenchés (DSBR, LIQD, ACCR, STCH...)
+--   - les TRN_CODE utilises
+--   - les comptes GL (AC_NO) qui portent les ecritures CL
+--   - le volume de transactions dans le temps
+-- =============================================================================
+
+PROMPT
+PROMPT =============================================================================
+PROMPT SECTION 4 : ACTB_HISTORY - TRANSACTIONS MODULE CL
+PROMPT =============================================================================
+PROMPT
+
+COLUMN amount_tag    FORMAT A35
+COLUMN nb_lignes     FORMAT 999,999,990
+COLUMN total_debit   FORMAT 999,999,999,990
+COLUMN total_credit  FORMAT 999,999,999,990
+COLUMN event         FORMAT A15
+COLUMN trn_code      FORMAT A15
+COLUMN annee         FORMAT A6
+
+PROMPT --- 4a. AMOUNT_TAG utilises dans le module CL (avec volumes) ---
+PROMPT
+
+SELECT
+    h.amount_tag,
+    COUNT(*)                                                          nb_lignes,
+    SUM(CASE WHEN h.drcr_ind = 'D' THEN h.lcy_amount ELSE 0 END)   total_debit,
+    SUM(CASE WHEN h.drcr_ind = 'C' THEN h.lcy_amount ELSE 0 END)   total_credit
+FROM actb_history h
+WHERE h.module = 'CL'
+GROUP BY h.amount_tag
+ORDER BY nb_lignes DESC;
+
+PROMPT
+PROMPT --- 4b. EVENTS utilises dans le module CL ---
+PROMPT
+
+SELECT
+    h.event,
+    COUNT(*)   nb_lignes
+FROM actb_history h
+WHERE h.module = 'CL'
+GROUP BY h.event
+ORDER BY nb_lignes DESC;
+
+PROMPT
+PROMPT --- 4c. TRN_CODE utilises dans le module CL ---
+PROMPT
+
+SELECT
+    h.trn_code,
+    COUNT(*)   nb_lignes
+FROM actb_history h
+WHERE h.module = 'CL'
+GROUP BY h.trn_code
+ORDER BY nb_lignes DESC;
+
+PROMPT
+PROMPT --- 4d. Volume de transactions CL par annee ---
+PROMPT
+
+SELECT
+    TO_CHAR(h.trn_dt, 'YYYY')   annee,
+    COUNT(*)                     nb_lignes,
+    SUM(h.lcy_amount)            total_montant_lcy
+FROM actb_history h
+WHERE h.module = 'CL'
+GROUP BY TO_CHAR(h.trn_dt, 'YYYY')
+ORDER BY annee;
+
+PROMPT
+PROMPT --- 4e. Comptes GL (AC_NO) portant des ecritures CL (top 30) ---
+PROMPT    (jointure avec sttb_account pour identifier la classe comptable)
+PROMPT
+
+COLUMN ac_no          FORMAT A20
+COLUMN ac_gl_desc     FORMAT A45
+COLUMN ac_natural_gl  FORMAT A14
+COLUMN gl_category    FORMAT A12
+COLUMN ac_or_gl       FORMAT A8
+
+SELECT *
+FROM (
+    SELECT
+        h.ac_no,
+        s.ac_gl_desc,
+        s.ac_natural_gl,
+        s.gl_category,
+        s.ac_or_gl,
+        COUNT(*)                                                          nb_ecritures,
+        SUM(CASE WHEN h.drcr_ind = 'D' THEN h.lcy_amount ELSE 0 END)   total_debit,
+        SUM(CASE WHEN h.drcr_ind = 'C' THEN h.lcy_amount ELSE 0 END)   total_credit
+    FROM actb_history h
+    LEFT JOIN sttb_account s ON h.ac_no = s.ac_gl_no
+    WHERE h.module = 'CL'
+    GROUP BY h.ac_no, s.ac_gl_desc, s.ac_natural_gl, s.gl_category, s.ac_or_gl
+    ORDER BY nb_ecritures DESC
+)
+WHERE ROWNUM <= 30;
+
+PROMPT
+PROMPT --- 4f. Echantillon de 10 transactions CL recentes ---
+PROMPT
+
+COLUMN trn_ref_no       FORMAT A30
+COLUMN related_account  FORMAT A20
+COLUMN lcy_amount       FORMAT 999,999,999,990
+COLUMN trn_dt           FORMAT A13
+
+SELECT *
+FROM (
+    SELECT
+        h.trn_ref_no,
+        h.ac_no,
+        h.drcr_ind,
+        h.amount_tag,
+        h.lcy_amount,
+        TO_CHAR(h.trn_dt, 'DD-MON-YYYY')   trn_dt,
+        h.related_account,
+        h.event,
+        h.module,
+        h.product
+    FROM actb_history h
+    WHERE h.module = 'CL'
+    ORDER BY h.trn_dt DESC, h.event_sr_no DESC
+)
+WHERE ROWNUM <= 10;
