@@ -680,3 +680,189 @@ LEFT JOIN sttb_account s ON h.ac_no = s.ac_gl_no
 WHERE h.module = 'CL'
 GROUP BY s.ac_natural_gl, s.ac_or_gl, s.gl_category
 ORDER BY s.ac_natural_gl NULLS LAST;
+
+
+-- =============================================================================
+-- SECTION 7 : MAPPING DES RELATIONS INTER-TABLES
+-- =============================================================================
+-- Objectif : Verifier les jointures entre les tables centrales et documenter
+--   comment naviguer d'un dossier de credit vers ses transactions, ses
+--   echeances et ses comptes GL.
+--   Cle de jointure principale :
+--     actb_history.RELATED_ACCOUNT = cltb_account_apps_master.ACCOUNT_NUMBER
+--     actb_history.AC_NO           = sttb_account.AC_GL_NO
+--     cltb_account_apps_master.ACCOUNT_NUMBER = cltb_account_schedules.ACCOUNT_NUMBER
+--     cltb_account_apps_master.PRODUCT_CODE   = cltm_product.PRODUCT_CODE
+--     cltb_account_apps_master.DR_PROD_AC     = sttb_account.AC_GL_NO
+-- =============================================================================
+
+PROMPT
+PROMPT =============================================================================
+PROMPT SECTION 7 : RELATIONS INTER-TABLES - VERIFICATION DES JOINTURES
+PROMPT =============================================================================
+PROMPT
+
+COLUMN matched_accounts           FORMAT 999,999,990
+COLUMN loan_accounts_total        FORMAT 999,999,990
+COLUMN related_accounts_in_hist   FORMAT 999,999,990
+COLUMN distinct_dr_prod_ac        FORMAT 999,990
+COLUMN matched_dr_in_sttb         FORMAT 999,990
+COLUMN distinct_cr_prod_ac        FORMAT 999,990
+COLUMN matched_cr_in_sttb         FORMAT 999,990
+COLUMN accts_with_schedules       FORMAT 999,999,990
+COLUMN accts_with_history_cl      FORMAT 999,999,990
+COLUMN accts_with_both            FORMAT 999,999,990
+
+PROMPT --- 7a. Couverture : actb_history.RELATED_ACCOUNT <-> cltb_account_apps_master.ACCOUNT_NUMBER ---
+PROMPT
+
+SELECT
+    COUNT(DISTINCT h.related_account)                                              related_accounts_in_hist,
+    COUNT(DISTINCT a.account_number)                                               loan_accounts_total,
+    COUNT(DISTINCT CASE WHEN a.account_number IS NOT NULL THEN h.related_account
+                   END)                                                            matched_accounts
+FROM (
+    SELECT DISTINCT related_account
+    FROM actb_history
+    WHERE module = 'CL'
+      AND related_account IS NOT NULL
+) h
+LEFT JOIN cltb_account_apps_master a ON h.related_account = a.account_number;
+
+PROMPT
+PROMPT --- 7b. Couverture : cltb_account_apps_master -> cltb_account_schedules ---
+PROMPT
+
+SELECT
+    COUNT(DISTINCT a.account_number)   loan_accounts_total,
+    COUNT(DISTINCT s.account_number)   accts_with_schedules
+FROM cltb_account_apps_master a
+LEFT JOIN cltb_account_schedules s ON s.account_number = a.account_number;
+
+PROMPT
+PROMPT --- 7c. Dossiers avec echeances ET avec historique CL ---
+PROMPT
+
+SELECT
+    COUNT(DISTINCT a.account_number)   loan_accounts_total,
+    COUNT(DISTINCT CASE WHEN h.related_account IS NOT NULL THEN a.account_number
+                   END)                accts_with_history_cl,
+    COUNT(DISTINCT CASE WHEN s.account_number IS NOT NULL THEN a.account_number
+                   END)                accts_with_schedules,
+    COUNT(DISTINCT CASE WHEN h.related_account IS NOT NULL
+                         AND s.account_number IS NOT NULL THEN a.account_number
+                   END)                accts_with_both
+FROM cltb_account_apps_master a
+LEFT JOIN (
+    SELECT DISTINCT related_account FROM actb_history WHERE module = 'CL'
+) h ON h.related_account = a.account_number
+LEFT JOIN (
+    SELECT DISTINCT account_number FROM cltb_account_schedules
+) s ON s.account_number = a.account_number;
+
+PROMPT
+PROMPT --- 7d. Couverture : cltb_account_apps_master.DR_PROD_AC -> sttb_account ---
+PROMPT
+
+SELECT
+    COUNT(DISTINCT a.dr_prod_ac)                                               distinct_dr_prod_ac,
+    COUNT(DISTINCT CASE WHEN s.ac_gl_no IS NOT NULL THEN a.dr_prod_ac END)    matched_dr_in_sttb
+FROM (
+    SELECT DISTINCT dr_prod_ac
+    FROM cltb_account_apps_master
+    WHERE dr_prod_ac IS NOT NULL
+) a
+LEFT JOIN sttb_account s ON s.ac_gl_no = a.dr_prod_ac;
+
+PROMPT
+PROMPT --- 7e. Couverture : cltb_account_apps_master.CR_PROD_AC -> sttb_account ---
+PROMPT
+
+SELECT
+    COUNT(DISTINCT a.cr_prod_ac)                                               distinct_cr_prod_ac,
+    COUNT(DISTINCT CASE WHEN s.ac_gl_no IS NOT NULL THEN a.cr_prod_ac END)    matched_cr_in_sttb
+FROM (
+    SELECT DISTINCT cr_prod_ac
+    FROM cltb_account_apps_master
+    WHERE cr_prod_ac IS NOT NULL
+) a
+LEFT JOIN sttb_account s ON s.ac_gl_no = a.cr_prod_ac;
+
+PROMPT
+PROMPT --- 7f. Toutes les classes comptables (AC_NATURAL_GL) actives dans actb_history MODULE=CL ---
+PROMPT    (avec volumes de debit / credit en LCY)
+PROMPT
+
+SELECT
+    s.ac_natural_gl,
+    s.ac_or_gl,
+    s.gl_category,
+    COUNT(DISTINCT h.ac_no)                                                    nb_comptes,
+    COUNT(*)                                                                   nb_ecritures,
+    SUM(CASE WHEN h.drcr_ind = 'D' THEN h.lcy_amount ELSE 0 END)            total_debit_lcy,
+    SUM(CASE WHEN h.drcr_ind = 'C' THEN h.lcy_amount ELSE 0 END)            total_credit_lcy
+FROM actb_history h
+LEFT JOIN sttb_account s ON h.ac_no = s.ac_gl_no
+WHERE h.module = 'CL'
+GROUP BY s.ac_natural_gl, s.ac_or_gl, s.gl_category
+ORDER BY s.ac_natural_gl NULLS LAST;
+
+PROMPT
+PROMPT --- 7g. Jointure illustrative : un dossier de credit + ses ecritures CL + compte GL ---
+PROMPT    (premier dossier actif avec au moins une ecriture CL dans actb_history)
+PROMPT
+
+COLUMN account_number  FORMAT A20
+COLUMN customer_id     FORMAT A15
+COLUMN product_code    FORMAT A15
+COLUMN amount_financed FORMAT 999,999,999,990
+COLUMN account_status  FORMAT A16
+COLUMN event           FORMAT A15
+COLUMN amount_tag      FORMAT A35
+COLUMN drcr_ind        FORMAT A5
+COLUMN lcy_amount      FORMAT 999,999,999,990
+COLUMN trn_dt          FORMAT A14
+COLUMN ac_no           FORMAT A20
+COLUMN ac_natural_gl   FORMAT A14
+COLUMN ac_gl_desc      FORMAT A45
+
+SELECT *
+FROM (
+    SELECT
+        a.account_number,
+        a.customer_id,
+        a.product_code,
+        a.amount_financed,
+        a.account_status,
+        h.event,
+        h.amount_tag,
+        h.drcr_ind,
+        h.lcy_amount,
+        TO_CHAR(h.trn_dt, 'DD-MON-YYYY')   trn_dt,
+        h.ac_no,
+        s.ac_natural_gl,
+        s.ac_gl_desc
+    FROM cltb_account_apps_master a
+    JOIN actb_history h
+        ON h.related_account = a.account_number
+       AND h.module = 'CL'
+    LEFT JOIN sttb_account s ON h.ac_no = s.ac_gl_no
+    WHERE a.account_number = (
+        SELECT MIN(m.account_number)
+        FROM cltb_account_apps_master m
+        WHERE m.account_status = 'A'
+          AND EXISTS (
+              SELECT 1
+              FROM actb_history hh
+              WHERE hh.related_account = m.account_number
+                AND hh.module = 'CL'
+          )
+    )
+    ORDER BY h.trn_dt, h.event_sr_no
+)
+WHERE ROWNUM <= 50;
+
+PROMPT
+PROMPT =============================================================================
+PROMPT FIN DU SCRIPT D'EXPLORATION - MODULE CL (CREDITS)
+PROMPT =============================================================================
