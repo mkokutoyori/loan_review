@@ -40,3 +40,48 @@ SELECT MIN(trn_dt) AS first_trn_dt,
        MAX(value_dt) AS last_value_dt
 FROM   actb_history
 WHERE  module = 'CL';
+
+PROMPT ============================================================
+PROMPT SECTION 2 - CLTM_PRODUCT (loan products definitions)
+PROMPT ============================================================
+
+PROMPT --- 2.1 Distinct product categories ---
+SELECT product_category, COUNT(*) AS nb_products
+FROM   cltm_product
+GROUP  BY product_category
+ORDER  BY nb_products DESC;
+
+PROMPT --- 2.2 Distinct product types / contract types / module ---
+SELECT module_code, product_type, contract_type, COUNT(*) AS nb_products
+FROM   cltm_product
+GROUP  BY module_code, product_type, contract_type
+ORDER  BY module_code, nb_products DESC;
+
+PROMPT --- 2.3 Product master list (authorized, not closed) ---
+SELECT product_code,
+       product_desc,
+       product_category,
+       product_type,
+       contract_type,
+       module_code,
+       product_end_date,
+       record_stat,
+       auth_stat
+FROM   cltm_product
+WHERE  auth_stat = 'A'
+ORDER  BY product_category, product_code;
+
+PROMPT --- 2.4 Product key flags (revolving, packing credit, lease, etc.) ---
+SELECT product_code,
+       revolving_type,
+       open_line_loan,
+       packing_credit,
+       lease_type,
+       cl_against_bill,
+       ic_product,
+       project_account,
+       fa_product,
+       limits_product
+FROM   cltm_product
+WHERE  auth_stat = 'A'
+ORDER  BY product_code;
