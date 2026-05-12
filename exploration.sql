@@ -252,5 +252,68 @@ BEGIN
     SELECT COUNT(cr_prod_ac) INTO v_count FROM cltb_account_apps_master;
     print_kv('CR_PROD_AC renseignes', TO_CHAR(v_count));
 
+    print_section('4. CSTB_AMOUNT_TAG (dictionnaire des balises module CL)');
+
+    print_sub('4.1 Nombre de balises par module');
+    FOR r IN (
+        SELECT module, COUNT(*) AS nb
+        FROM   cstb_amount_tag
+        GROUP  BY module
+        ORDER  BY nb DESC
+    ) LOOP
+        print_kv('Module ' || NVL(r.module,'<NULL>'), TO_CHAR(r.nb) || ' balises');
+    END LOOP;
+
+    print_sub('4.2 Toutes les balises module CL');
+    FOR r IN (
+        SELECT amount_tag, description, amount_tag_type,
+               interest_allowed, charge_allowed, commission_allowed, tax_allowed,
+               unrealised, track_receivable, track_payable,
+               offset_amount_tag, user_defined
+        FROM   cstb_amount_tag
+        WHERE  module = 'CL'
+        ORDER  BY amount_tag
+    ) LOOP
+        print_line(RPAD(r.amount_tag,25) ||
+                   RPAD(SUBSTR(NVL(r.description,'-'),1,45),47) ||
+                   RPAD('type='||NVL(r.amount_tag_type,'-'),10) ||
+                   RPAD('int='||NVL(r.interest_allowed,'-'),8) ||
+                   RPAD('chg='||NVL(r.charge_allowed,'-'),8) ||
+                   RPAD('unrl='||NVL(r.unrealised,'-'),9) ||
+                   RPAD('trkrcv='||NVL(r.track_receivable,'-'),11) ||
+                   RPAD('trkpay='||NVL(r.track_payable,'-'),11) ||
+                   RPAD('offset='||NVL(r.offset_amount_tag,'-'),20) ||
+                   'usr='||NVL(r.user_defined,'-'));
+    END LOOP;
+
+    print_sub('4.3 Balises CL candidates loss-pool / provision / suspense');
+    FOR r IN (
+        SELECT amount_tag, description, amount_tag_type, unrealised,
+               track_receivable, track_payable
+        FROM   cstb_amount_tag
+        WHERE  module = 'CL'
+          AND (UPPER(description) LIKE '%LOSS%'
+               OR UPPER(description) LIKE '%PROVIS%'
+               OR UPPER(description) LIKE '%WRITE%OFF%'
+               OR UPPER(description) LIKE '%SUSPEND%'
+               OR UPPER(description) LIKE '%SUSP%'
+               OR UPPER(description) LIKE '%POOL%'
+               OR UPPER(description) LIKE '%IMPAIR%'
+               OR UPPER(description) LIKE '%NPL%'
+               OR UPPER(amount_tag)  LIKE '%LOSS%'
+               OR UPPER(amount_tag)  LIKE '%PROV%'
+               OR UPPER(amount_tag)  LIKE '%WROFF%'
+               OR UPPER(amount_tag)  LIKE '%SUSP%'
+               OR UPPER(amount_tag)  LIKE '%POOL%')
+        ORDER  BY amount_tag
+    ) LOOP
+        print_line(RPAD(r.amount_tag,25) ||
+                   RPAD(SUBSTR(NVL(r.description,'-'),1,55),57) ||
+                   RPAD('type='||NVL(r.amount_tag_type,'-'),10) ||
+                   RPAD('unrl='||NVL(r.unrealised,'-'),9) ||
+                   RPAD('trkrcv='||NVL(r.track_receivable,'-'),11) ||
+                   'trkpay='||NVL(r.track_payable,'-'));
+    END LOOP;
+
 END;
 /
