@@ -136,3 +136,50 @@ FROM   cltb_account_apps_master
 UNION ALL
 SELECT 'CR_PROD_AC', COUNT(DISTINCT cr_prod_ac), COUNT(*), COUNT(cr_prod_ac)
 FROM   cltb_account_apps_master;
+
+PROMPT ============================================================
+PROMPT SECTION 4 - CSTB_AMOUNT_TAG (module CL amount tag dictionary)
+PROMPT ============================================================
+
+PROMPT --- 4.1 Number of tags by module ---
+SELECT module, COUNT(*) AS nb_tags
+FROM   cstb_amount_tag
+GROUP  BY module
+ORDER  BY nb_tags DESC;
+
+PROMPT --- 4.2 All CL amount tags with their nature ---
+SELECT amount_tag,
+       description,
+       amount_tag_type,
+       interest_allowed,
+       charge_allowed,
+       commission_allowed,
+       tax_allowed,
+       unrealised,
+       track_receivable,
+       track_payable,
+       offset_amount_tag,
+       user_defined
+FROM   cstb_amount_tag
+WHERE  module = 'CL'
+ORDER  BY amount_tag;
+
+PROMPT --- 4.3 CL tags that are unrealised / income suspense related (loss-pool candidates) ---
+SELECT amount_tag, description, amount_tag_type, unrealised,
+       track_receivable, track_payable
+FROM   cstb_amount_tag
+WHERE  module = 'CL'
+  AND  (UPPER(description) LIKE '%LOSS%'
+        OR UPPER(description) LIKE '%PROVIS%'
+        OR UPPER(description) LIKE '%WRITE%OFF%'
+        OR UPPER(description) LIKE '%SUSPEND%'
+        OR UPPER(description) LIKE '%SUSP%'
+        OR UPPER(description) LIKE '%POOL%'
+        OR UPPER(description) LIKE '%IMPAIR%'
+        OR UPPER(description) LIKE '%NPL%'
+        OR UPPER(amount_tag) LIKE '%LOSS%'
+        OR UPPER(amount_tag) LIKE '%PROV%'
+        OR UPPER(amount_tag) LIKE '%WROFF%'
+        OR UPPER(amount_tag) LIKE '%SUSP%'
+        OR UPPER(amount_tag) LIKE '%POOL%')
+ORDER  BY amount_tag;
