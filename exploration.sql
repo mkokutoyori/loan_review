@@ -152,5 +152,105 @@ BEGIN
                    'limits='||NVL(r.limits_product,'-'));
     END LOOP;
 
+    print_section('3. CLTB_ACCOUNT_APPS_MASTER (contrats de credit)');
+
+    print_sub('3.1 Repartition account_status / auth_stat');
+    FOR r IN (
+        SELECT account_status, auth_stat, COUNT(*) AS nb
+        FROM   cltb_account_apps_master
+        GROUP  BY account_status, auth_stat
+        ORDER  BY nb DESC
+    ) LOOP
+        print_line(RPAD('account_status='||NVL(r.account_status,'-'),25) ||
+                   RPAD('auth_stat='||NVL(r.auth_stat,'-'),18) ||
+                   'nb=' || r.nb);
+    END LOOP;
+
+    print_sub('3.2 Repartition par user_defined_status (axe NPL)');
+    FOR r IN (
+        SELECT user_defined_status,
+               COUNT(*)             AS nb,
+               SUM(amount_financed) AS sum_fin,
+               SUM(amount_disbursed) AS sum_dsb
+        FROM   cltb_account_apps_master
+        GROUP  BY user_defined_status
+        ORDER  BY nb DESC
+    ) LOOP
+        print_line(RPAD('uds='||NVL(r.user_defined_status,'<NULL>'),25) ||
+                   'nb=' || RPAD(TO_CHAR(r.nb),10) ||
+                   'fin=' || RPAD(TO_CHAR(NVL(r.sum_fin,0),'FM999999999990.00'),20) ||
+                   'dsb=' || TO_CHAR(NVL(r.sum_dsb,0),'FM999999999990.00'));
+    END LOOP;
+
+    print_sub('3.3 Repartition branche / produit / categorie');
+    FOR r IN (
+        SELECT branch_code, product_code, product_category,
+               COUNT(*) AS nb,
+               SUM(amount_financed) AS sum_fin
+        FROM   cltb_account_apps_master
+        GROUP  BY branch_code, product_code, product_category
+        ORDER  BY branch_code, nb DESC
+    ) LOOP
+        print_line(RPAD('BR='||r.branch_code,8) ||
+                   RPAD('prod='||r.product_code,15) ||
+                   RPAD('cat='||NVL(r.product_category,'-'),12) ||
+                   'nb=' || RPAD(TO_CHAR(r.nb),8) ||
+                   'fin=' || TO_CHAR(NVL(r.sum_fin,0),'FM999999999990.00'));
+    END LOOP;
+
+    print_sub('3.4 Repartition module_code / devise');
+    FOR r IN (
+        SELECT module_code, currency,
+               COUNT(*) AS nb,
+               SUM(amount_financed) AS sum_fin,
+               SUM(amount_disbursed) AS sum_dsb
+        FROM   cltb_account_apps_master
+        GROUP  BY module_code, currency
+        ORDER  BY nb DESC
+    ) LOOP
+        print_line(RPAD('module='||NVL(r.module_code,'-'),12) ||
+                   RPAD('ccy='||NVL(r.currency,'-'),10) ||
+                   'nb=' || RPAD(TO_CHAR(r.nb),8) ||
+                   'fin=' || RPAD(TO_CHAR(NVL(r.sum_fin,0),'FM999999999990.00'),20) ||
+                   'dsb=' || TO_CHAR(NVL(r.sum_dsb,0),'FM999999999990.00'));
+    END LOOP;
+
+    print_sub('3.5 Echantillon : 10 derniers contrats authentifies');
+    FOR r IN (
+        SELECT *
+          FROM (SELECT account_number, branch_code, customer_id, product_code,
+                       currency, amount_financed, amount_disbursed,
+                       value_date, maturity_date,
+                       account_status, user_defined_status,
+                       dr_prod_ac, cr_prod_ac
+                  FROM cltb_account_apps_master
+                 WHERE auth_stat = 'A'
+                 ORDER BY book_date DESC NULLS LAST)
+         WHERE ROWNUM <= 10
+    ) LOOP
+        print_line(RPAD(r.account_number,18) ||
+                   RPAD('BR='||r.branch_code,8) ||
+                   RPAD('cust='||NVL(r.customer_id,'-'),14) ||
+                   RPAD('prod='||r.product_code,12) ||
+                   RPAD('ccy='||r.currency,8) ||
+                   RPAD('fin='||TO_CHAR(NVL(r.amount_financed,0),'FM999999999990.00'),20) ||
+                   RPAD('vd='||TO_CHAR(r.value_date,'YYYY-MM-DD'),16) ||
+                   RPAD('uds='||NVL(r.user_defined_status,'-'),12) ||
+                   RPAD('dr='||NVL(r.dr_prod_ac,'-'),20) ||
+                   'cr='||NVL(r.cr_prod_ac,'-'));
+    END LOOP;
+
+    print_sub('3.6 Couverture des comptes de reglement DR_PROD_AC / CR_PROD_AC');
+    SELECT COUNT(*) INTO v_count FROM cltb_account_apps_master;
+    print_kv('Total contrats', TO_CHAR(v_count));
+    SELECT COUNT(DISTINCT dr_prod_ac) INTO v_count FROM cltb_account_apps_master;
+    print_kv('DR_PROD_AC distincts', TO_CHAR(v_count));
+    SELECT COUNT(dr_prod_ac) INTO v_count FROM cltb_account_apps_master;
+    print_kv('DR_PROD_AC renseignes', TO_CHAR(v_count));
+    SELECT COUNT(DISTINCT cr_prod_ac) INTO v_count FROM cltb_account_apps_master;
+    print_kv('CR_PROD_AC distincts', TO_CHAR(v_count));
+    SELECT COUNT(cr_prod_ac) INTO v_count FROM cltb_account_apps_master;
+    print_kv('CR_PROD_AC renseignes', TO_CHAR(v_count));
+
 END;
 /
