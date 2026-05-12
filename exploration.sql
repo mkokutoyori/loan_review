@@ -438,5 +438,116 @@ BEGIN
                    'sumCR=' || TO_CHAR(NVL(r.sum_cr,0),'FM999999999990.00'));
     END LOOP;
 
+    print_section('6. CLTB_ACCOUNT_SCHEDULES (echeanciers de credit)');
+
+    print_sub('6.1 Component_name distincts');
+    FOR r IN (
+        SELECT component_name,
+               COUNT(*) AS nb_lines,
+               COUNT(DISTINCT account_number) AS nb_accounts
+        FROM   cltb_account_schedules
+        GROUP  BY component_name
+        ORDER  BY nb_lines DESC
+    ) LOOP
+        print_line(RPAD('comp='||NVL(r.component_name,'-'),22) ||
+                   'lines=' || RPAD(TO_CHAR(r.nb_lines),12) ||
+                   'accounts=' || r.nb_accounts);
+    END LOOP;
+
+    print_sub('6.2 Schedule_type distincts');
+    FOR r IN (
+        SELECT schedule_type, COUNT(*) AS nb
+        FROM   cltb_account_schedules
+        GROUP  BY schedule_type
+        ORDER  BY nb DESC
+    ) LOOP
+        print_kv('schedule_type ' || NVL(r.schedule_type,'-'), TO_CHAR(r.nb));
+    END LOOP;
+
+    print_sub('6.3 Repartition schedule_flag / sch_status');
+    FOR r IN (
+        SELECT schedule_flag, sch_status, COUNT(*) AS nb
+        FROM   cltb_account_schedules
+        GROUP  BY schedule_flag, sch_status
+        ORDER  BY nb DESC
+    ) LOOP
+        print_line(RPAD('flag='||NVL(r.schedule_flag,'-'),12) ||
+                   RPAD('sch_status='||NVL(r.sch_status,'-'),18) ||
+                   'nb=' || r.nb);
+    END LOOP;
+
+    print_sub('6.4 Overdue snapshot par composant (amount_overdue > 0)');
+    FOR r IN (
+        SELECT component_name,
+               COUNT(*) AS nb_lines,
+               COUNT(DISTINCT account_number) AS nb_accounts,
+               SUM(amount_overdue) AS sum_overdue,
+               SUM(amount_due)     AS sum_due,
+               SUM(amount_settled) AS sum_settled
+        FROM   cltb_account_schedules
+        WHERE  amount_overdue > 0
+        GROUP  BY component_name
+        ORDER  BY SUM(amount_overdue) DESC NULLS LAST
+    ) LOOP
+        print_line(RPAD('comp='||NVL(r.component_name,'-'),22) ||
+                   'lines=' || RPAD(TO_CHAR(r.nb_lines),10) ||
+                   'acc=' || RPAD(TO_CHAR(r.nb_accounts),10) ||
+                   'overdue=' || RPAD(TO_CHAR(NVL(r.sum_overdue,0),'FM999999999990.00'),22) ||
+                   'due=' || RPAD(TO_CHAR(NVL(r.sum_due,0),'FM999999999990.00'),22) ||
+                   'settled=' || TO_CHAR(NVL(r.sum_settled,0),'FM999999999990.00'));
+    END LOOP;
+
+    print_sub('6.5 Aging des impayes (DPD buckets)');
+    FOR r IN (
+        SELECT CASE
+                 WHEN TRUNC(SYSDATE) - schedule_due_date <= 30  THEN '1-30'
+                 WHEN TRUNC(SYSDATE) - schedule_due_date <= 60  THEN '31-60'
+                 WHEN TRUNC(SYSDATE) - schedule_due_date <= 90  THEN '61-90'
+                 WHEN TRUNC(SYSDATE) - schedule_due_date <= 180 THEN '91-180'
+                 WHEN TRUNC(SYSDATE) - schedule_due_date <= 365 THEN '181-365'
+                 ELSE '>365'
+               END AS bucket,
+               COUNT(*) AS nb_lines,
+               COUNT(DISTINCT account_number) AS nb_accounts,
+               SUM(amount_overdue) AS sum_overdue
+        FROM   cltb_account_schedules
+        WHERE  amount_overdue > 0
+          AND  schedule_due_date < TRUNC(SYSDATE)
+        GROUP  BY CASE
+                    WHEN TRUNC(SYSDATE) - schedule_due_date <= 30  THEN '1-30'
+                    WHEN TRUNC(SYSDATE) - schedule_due_date <= 60  THEN '31-60'
+                    WHEN TRUNC(SYSDATE) - schedule_due_date <= 90  THEN '61-90'
+                    WHEN TRUNC(SYSDATE) - schedule_due_date <= 180 THEN '91-180'
+                    WHEN TRUNC(SYSDATE) - schedule_due_date <= 365 THEN '181-365'
+                    ELSE '>365'
+                  END
+        ORDER  BY 1
+    ) LOOP
+        print_line(RPAD('bucket='||r.bucket,15) ||
+                   'lines=' || RPAD(TO_CHAR(r.nb_lines),10) ||
+                   'acc=' || RPAD(TO_CHAR(r.nb_accounts),10) ||
+                   'overdue=' || TO_CHAR(NVL(r.sum_overdue,0),'FM999999999990.00'));
+    END LOOP;
+
+    print_sub('6.6 Suspense et write-off au niveau echeance');
+    FOR r IN (
+        SELECT component_name,
+               SUM(susp_amt_due)     AS sum_susp_due,
+               SUM(susp_amt_settled) AS sum_susp_set,
+               SUM(susp_amt_lcy)     AS sum_susp_lcy,
+               SUM(writeoff_amt)     AS sum_wro,
+               SUM(amount_waived)    AS sum_wai
+        FROM   cltb_account_schedules
+        GROUP  BY component_name
+        ORDER  BY SUM(susp_amt_due) DESC NULLS LAST
+    ) LOOP
+        print_line(RPAD('comp='||NVL(r.component_name,'-'),22) ||
+                   'susp_due=' || RPAD(TO_CHAR(NVL(r.sum_susp_due,0),'FM999999999990.00'),22) ||
+                   'susp_set=' || RPAD(TO_CHAR(NVL(r.sum_susp_set,0),'FM999999999990.00'),22) ||
+                   'susp_lcy=' || RPAD(TO_CHAR(NVL(r.sum_susp_lcy,0),'FM999999999990.00'),22) ||
+                   'wro=' || RPAD(TO_CHAR(NVL(r.sum_wro,0),'FM999999999990.00'),20) ||
+                   'wai=' || TO_CHAR(NVL(r.sum_wai,0),'FM999999999990.00'));
+    END LOOP;
+
 END;
 /
