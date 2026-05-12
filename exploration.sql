@@ -549,5 +549,102 @@ BEGIN
                    'wai=' || TO_CHAR(NVL(r.sum_wai,0),'FM999999999990.00'));
     END LOOP;
 
+    print_section('7. STTB_ACCOUNT (comptes GL et comptes client)');
+
+    print_sub('7.1 Repartition AC_OR_GL');
+    FOR r IN (
+        SELECT ac_or_gl, COUNT(*) AS nb
+        FROM   sttb_account
+        GROUP  BY ac_or_gl
+        ORDER  BY ac_or_gl
+    ) LOOP
+        print_kv('AC_OR_GL ' || NVL(r.ac_or_gl,'<NULL>'), TO_CHAR(r.nb));
+    END LOOP;
+
+    print_sub('7.2 GL : repartition gl_aclass_type / gl_category');
+    FOR r IN (
+        SELECT gl_aclass_type, gl_category, COUNT(*) AS nb
+        FROM   sttb_account
+        WHERE  ac_or_gl = 'G'
+        GROUP  BY gl_aclass_type, gl_category
+        ORDER  BY nb DESC
+    ) LOOP
+        print_line(RPAD('aclass_type='||NVL(r.gl_aclass_type,'-'),20) ||
+                   RPAD('category='||NVL(r.gl_category,'-'),18) ||
+                   'nb=' || r.nb);
+    END LOOP;
+
+    print_sub('7.3 Repartition AC_CLASS');
+    FOR r IN (
+        SELECT ac_class, COUNT(*) AS nb
+        FROM   sttb_account
+        GROUP  BY ac_class
+        ORDER  BY nb DESC
+    ) LOOP
+        print_kv('AC_CLASS ' || NVL(r.ac_class,'<NULL>'), TO_CHAR(r.nb));
+    END LOOP;
+
+    print_sub('7.4 GL candidats loss-pool / provision / NPL / impairment / write-off');
+    FOR r IN (
+        SELECT ac_gl_no, branch_code, ac_gl_ccy, ac_gl_desc, ac_class,
+               gl_aclass_type, gl_category, ac_natural_gl, auth_stat
+        FROM   sttb_account
+        WHERE  ac_or_gl = 'G'
+          AND (UPPER(ac_gl_desc) LIKE '%LOSS%POOL%'
+               OR UPPER(ac_gl_desc) LIKE '%POOL%'
+               OR UPPER(ac_gl_desc) LIKE '%PROVIS%'
+               OR UPPER(ac_gl_desc) LIKE '%IMPAIR%'
+               OR UPPER(ac_gl_desc) LIKE '%WRITE%OFF%'
+               OR UPPER(ac_gl_desc) LIKE '%DOUBTFUL%'
+               OR UPPER(ac_gl_desc) LIKE '%NPL%'
+               OR UPPER(ac_gl_desc) LIKE '%LOAN%LOSS%')
+        ORDER  BY branch_code, ac_gl_no
+    ) LOOP
+        print_line(RPAD('gl='||r.ac_gl_no,18) ||
+                   RPAD('br='||r.branch_code,7) ||
+                   RPAD('ccy='||r.ac_gl_ccy,8) ||
+                   RPAD(SUBSTR(NVL(r.ac_gl_desc,'-'),1,55),57) ||
+                   RPAD('class='||NVL(r.ac_class,'-'),12) ||
+                   RPAD('aclass='||NVL(r.gl_aclass_type,'-'),12) ||
+                   RPAD('cat='||NVL(r.gl_category,'-'),8) ||
+                   RPAD('nat='||NVL(r.ac_natural_gl,'-'),14) ||
+                   'auth='||NVL(r.auth_stat,'-'));
+    END LOOP;
+
+    print_sub('7.5 GL lies aux credits (LOAN / ADVANCE / CREDIT - top 50)');
+    FOR r IN (
+        SELECT *
+          FROM (SELECT ac_gl_no, branch_code, ac_gl_ccy, ac_gl_desc,
+                       ac_class, ac_natural_gl
+                  FROM sttb_account
+                 WHERE ac_or_gl = 'G'
+                   AND (UPPER(ac_gl_desc) LIKE '%LOAN%'
+                        OR UPPER(ac_gl_desc) LIKE '%ADVANCE%'
+                        OR UPPER(ac_gl_desc) LIKE '%CREDIT%')
+                 ORDER BY branch_code, ac_gl_no)
+         WHERE ROWNUM <= 50
+    ) LOOP
+        print_line(RPAD('gl='||r.ac_gl_no,18) ||
+                   RPAD('br='||r.branch_code,7) ||
+                   RPAD('ccy='||r.ac_gl_ccy,8) ||
+                   RPAD(SUBSTR(NVL(r.ac_gl_desc,'-'),1,60),62) ||
+                   RPAD('class='||NVL(r.ac_class,'-'),12) ||
+                   'nat='||NVL(r.ac_natural_gl,'-'));
+    END LOOP;
+
+    print_sub('7.6 Statut des GL (blocked / frozen / dormant)');
+    FOR r IN (
+        SELECT gl_stat_blocked, ac_stat_frozen, ac_stat_dormant, COUNT(*) AS nb
+        FROM   sttb_account
+        WHERE  ac_or_gl = 'G'
+        GROUP  BY gl_stat_blocked, ac_stat_frozen, ac_stat_dormant
+        ORDER  BY nb DESC
+    ) LOOP
+        print_line(RPAD('blocked='||NVL(r.gl_stat_blocked,'-'),14) ||
+                   RPAD('frozen='||NVL(r.ac_stat_frozen,'-'),14) ||
+                   RPAD('dormant='||NVL(r.ac_stat_dormant,'-'),14) ||
+                   'nb=' || r.nb);
+    END LOOP;
+
 END;
 /
